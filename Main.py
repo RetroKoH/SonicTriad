@@ -44,6 +44,18 @@ def apply_theme(app, theme_name = "dark"):
     palette.setColor(QPalette.ColorRole.Highlight, QColor(t["primary"]))
     app.setPalette(palette)
 
+    QSS = f"""
+        QLabel#dropZone {{
+            font-size: 16px;
+            font-weight: bold;
+            color: {t["text_muted"]};
+            border: 2px dashed {t["primary"]};
+            border-radius: 8px;
+            background-color: {t["bg_medium"]};
+        }}
+    """
+    app.setStyleSheet(QSS)
+
 class TriadApp(QtW.QMainWindow):
     def __init__(self, instance):
         super().__init__()
@@ -111,16 +123,7 @@ class TriadApp(QtW.QMainWindow):
 
         drop_zone = QtW.QLabel("Drop Project file here")
         drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_zone.setStyleSheet(
-            """
-            font-size: 16px;
-            font-weight: bold;
-            color: #A0A0A0;
-            border: 2px dashed #8088F8;
-            border-radius: 8px;
-            background-color: #181818;
-            """
-        )
+        drop_zone.setObjectName("dropZone")
         content_layout.addWidget(drop_zone)
 
         dash_layout.addLayout(content_layout)
