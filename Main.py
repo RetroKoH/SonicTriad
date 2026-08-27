@@ -14,18 +14,65 @@ class TriadApp(QtW.QMainWindow):
         self.tabs = QtW.QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.init_tab("Project")
+        self.projects_tab()
         self.init_tab("Palettes")
         self.init_tab("Art")
         self.init_tab("Animations")
         self.init_tab("Levels")
+
+    def projects_tab(self):
+        tab_widget = QtW.QWidget()
+
+        dash_layout = QtW.QVBoxLayout(tab_widget)
+        header_label = QtW.QLabel(f"Project Dashboard")
+        header_label.setFixedHeight(40)
+        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_label.setStyleSheet(
+            """
+            color: #A0A0A0;
+            font-size: 18px;
+            font-weight: bold;
+            """
+        )
+        dash_layout.addWidget(header_label)
+
+        content_layout = QtW.QHBoxLayout()
+        info_label = QtW.QLabel("No Project Loaded")
+        info_label.setFixedWidth(200)
+        info_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        info_label.setStyleSheet(
+            """
+            color: #A0A0A0;
+            font-size: 14px;
+            font-weight: bold;
+            """
+        )
+        content_layout.addWidget(info_label)
+
+        drop_zone = QtW.QLabel("Drop Project file here")
+        drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        drop_zone.setStyleSheet(
+            """
+            font-size: 16px;
+            font-weight: bold;
+            color: #A0A0A0;
+            border: 2px dashed #8088F8;
+            border-radius: 8px;
+            background-color: #181818;
+            """
+        )
+        content_layout.addWidget(drop_zone)
+
+        dash_layout.addLayout(content_layout)
+
+        self.tabs.addTab(tab_widget, "Projects")
 
     def init_tab(self, tab_name):
         # for placeholder tabs
         tab_widget = QtW.QWidget()
         layout = QtW.QVBoxLayout(tab_widget)
 
-        label = QtW.QLabel(f"{tab_name} Mode Workspace")
+        label = QtW.QLabel(f"{tab_name} Editor")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet(
             """
@@ -37,29 +84,6 @@ class TriadApp(QtW.QMainWindow):
 
         layout.addWidget(label)
         self.tabs.addTab(tab_widget, tab_name)
-
-        # Temporarily removing Drag/Drop stuff
-        """# Basic Drag and Drop Widget (Testing)
-        central_widget = QtW.QWidget()
-        self.setCentralWidget(central_widget)
-
-        main_layout = QtW.QVBoxLayout()
-        central_widget.setLayout(main_layout)
-
-        welcome_label = QtW.QLabel("Ready!\nDrag & Drop file(s) here")
-        welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        welcome_label.setStyleSheet(
-                    QLabel {
-                        font-size: 16px;
-                        font-weight: bold;
-                        color: #A0A0A0;
-                        border: 2px dashed #8088F8;
-                        border-radius: 8px;
-                        background-color: #181818;
-                    }
-                )
-
-        main_layout.addWidget(welcome_label)"""
 
 def main():
     app = QtW.QApplication(sys.argv)
