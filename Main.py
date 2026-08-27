@@ -1,18 +1,74 @@
 import sys
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPalette, QColor
+
+THEMES = {
+    "dark": {
+        "primary": "#8088F8",
+        "bg_dark": "#181818",
+        "bg_medium": "#202020",
+        "bg_light": "#303030",
+        "text_main": "#F0F8F8",
+        "text_muted": "#B8C8D0",
+        "border": "#484848",
+        "fusion_window": QColor(30, 30, 30),
+        "fusion_base": QColor(18, 18, 18),
+        "fusion_button": QColor(48, 48, 48),
+    },
+    "light": {
+        "primary": "#5058C8",
+        "bg_dark": "#E0E0E0",
+        "bg_medium": "#E8E8E8",
+        "bg_light": "#F8F8F8",
+        "text_main": "#101828",
+        "text_muted": "#586068",
+        "border": "#C8C8C8",
+        "fusion_window": QColor(240, 240, 240),
+        "fusion_base": QColor(255, 255, 255),
+        "fusion_button": QColor(224, 224, 224),
+    }
+}
+
+def apply_theme(app, theme_name = "dark"):
+    t = THEMES[theme_name]
+    app.setStyle("Fusion")
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, t["fusion_window"])
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(t["text_main"]))
+    palette.setColor(QPalette.ColorRole.Base, t["fusion_base"])
+    palette.setColor(QPalette.ColorRole.Text, QColor(t["text_main"]))
+    palette.setColor(QPalette.ColorRole.Button, t["fusion_button"])
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(t["text_main"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(t["primary"]))
+    app.setPalette(palette)
 
 class TriadApp(QtW.QMainWindow):
-    def __init__(self):
+    def __init__(self, instance):
         super().__init__()
+        self.app = instance
+        self.current_theme = "dark"
 
         self.setWindowTitle("Sonic Triad Studio - RetroKoH")
         self.resize(1024, 768)
         self.setMinimumSize(800, 600)
 
+        main_widget = QtW.QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QtW.QVBoxLayout(main_widget)
+
+        # New theme toggle (temp setup)
+        top_bar = QtW.QHBoxLayout()
+        self.theme_btn = QtW.QPushButton("Toggle Theme")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        top_bar.addStretch()
+        top_bar.addWidget(self.theme_btn)
+        main_layout.addLayout(top_bar)
+
         # Mode Tabs
         self.tabs = QtW.QTabWidget()
-        self.setCentralWidget(self.tabs)
+        main_layout.addWidget(self.tabs)
 
         self.projects_tab()
         self.init_tab("Palettes")
@@ -20,11 +76,15 @@ class TriadApp(QtW.QMainWindow):
         self.init_tab("Animations")
         self.init_tab("Levels")
 
+    def toggle_theme(self):
+        self.current_theme = "light" if self.current_theme == "dark" else "dark"
+        apply_theme(self.app, self.current_theme)
+
     def projects_tab(self):
         tab_widget = QtW.QWidget()
 
         dash_layout = QtW.QVBoxLayout(tab_widget)
-        header_label = QtW.QLabel(f"Project Dashboard")
+        header_label = QtW.QLabel("Project Dashboard")
         header_label.setFixedHeight(40)
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_label.setStyleSheet(
@@ -88,7 +148,9 @@ class TriadApp(QtW.QMainWindow):
 def main():
     app = QtW.QApplication(sys.argv)
 
-    window = TriadApp()
+    apply_theme(app, "dark")
+
+    window = TriadApp(app)
     window.show()
 
     # (Without this, the window immediately closes)
