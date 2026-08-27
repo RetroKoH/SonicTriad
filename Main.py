@@ -100,6 +100,10 @@ class TriadApp(QtW.QMainWindow):
         self.init_tab("Animations")
         self.init_tab("Levels")
 
+        status_label = QtW.QLabel("Status: Idle")
+        status_label.setFixedHeight(25)
+        main_layout.addWidget(status_label)
+
     def toggle_theme(self):
         self.current_theme = "light" if self.current_theme == "dark" else "dark"
         apply_theme(self.app, self.current_theme)
