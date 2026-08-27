@@ -45,6 +45,18 @@ def apply_theme(app, theme_name = "dark"):
     app.setPalette(palette)
 
     QSS = f"""
+        QLabel#headerLabel {{
+            color: {t["text_muted"]};
+            font-size: 18px;
+            font-weight: bold;
+        }}
+        
+        QLabel#infoLabel {{
+            color: {t["text_muted"]};
+            font-size: 14px;
+            font-weight: bold;
+        }}
+        
         QLabel#dropZone {{
             font-size: 16px;
             font-weight: bold;
@@ -99,26 +111,14 @@ class TriadApp(QtW.QMainWindow):
         header_label = QtW.QLabel("Project Dashboard")
         header_label.setFixedHeight(40)
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_label.setStyleSheet(
-            """
-            color: #A0A0A0;
-            font-size: 18px;
-            font-weight: bold;
-            """
-        )
+        header_label.setObjectName("headerLabel")
         dash_layout.addWidget(header_label)
 
         content_layout = QtW.QHBoxLayout()
         info_label = QtW.QLabel("No Project Loaded")
         info_label.setFixedWidth(200)
         info_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        info_label.setStyleSheet(
-            """
-            color: #A0A0A0;
-            font-size: 14px;
-            font-weight: bold;
-            """
-        )
+        info_label.setObjectName("infoLabel")
         content_layout.addWidget(info_label)
 
         drop_zone = QtW.QLabel("Drop Project file here")
@@ -135,17 +135,11 @@ class TriadApp(QtW.QMainWindow):
         tab_widget = QtW.QWidget()
         layout = QtW.QVBoxLayout(tab_widget)
 
-        label = QtW.QLabel(f"{tab_name} Editor")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet(
-            """
-            color: #A0A0A0;
-            font-size: 18px;
-            font-weight: bold;
-            """
-        )
-
-        layout.addWidget(label)
+        header_label = QtW.QLabel(f"{tab_name} Editor")
+        header_label.setFixedHeight(40)
+        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_label.setObjectName("headerLabel")
+        layout.addWidget(header_label)
         self.tabs.addTab(tab_widget, tab_name)
 
 def main():
