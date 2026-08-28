@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -179,10 +178,19 @@ class PaletteEditor(QtW.QWidget):
                 for i in range(0, len(data), 2):
                     if i + 1 < len(data):
                         val = (data[i] << 8) | data[i + 1]
-                        r = ((val >> 1) & 0x07) * 36
-                        g = ((val >> 5) & 0x07) * 36
-                        b = ((val >> 9) & 0x07) * 36
-                        loaded_colors.append(QColor(r, g, b))
+
+                        # Extract 3-bit values (0-7)
+                        r_step = (val >> 1) & 0x07
+                        g_step = (val >> 5) & 0x07
+                        b_step = (val >> 9) & 0x07
+
+                        # Map them directly to color values
+                        _r = MDCOLOR_VALUES[r_step]
+                        _g = MDCOLOR_VALUES[g_step]
+                        _b = MDCOLOR_VALUES[b_step]
+
+                        loaded_colors.append(QColor(_r, _g, _b))
+
         except Exception:
             pass
 
@@ -229,13 +237,17 @@ class PaletteEditor(QtW.QWidget):
         self.hex_input.blockSignals(True)
 
         # Now, update sliders and preview safely
-        self.r_slider.setValue(self.snap_to_md_colors(color.red()))
-        self.g_slider.setValue(self.snap_to_md_colors(color.green()))
-        self.b_slider.setValue(self.snap_to_md_colors(color.blue()))
+        _r = self.snap_to_md_colors(color.red())
+        _g = self.snap_to_md_colors(color.green())
+        _b = self.snap_to_md_colors(color.blue())
 
-        self.r_val_label.setText(str(self.r_slider.value()))
-        self.g_val_label.setText(str(self.g_slider.value()))
-        self.b_val_label.setText(str(self.b_slider.value()))
+        self.r_slider.setValue(_r)
+        self.g_slider.setValue(_g)
+        self.b_slider.setValue(_b)
+
+        self.r_val_label.setText(f"0x{MDCOLOR_VALUES[_r]:02X}")
+        self.g_val_label.setText(f"0x{MDCOLOR_VALUES[_g]:02X}")
+        self.b_val_label.setText(f"0x{MDCOLOR_VALUES[_b]:02X}")
 
         self.hex_input.setText(color.name().upper())
         self.update_preview_box(color)
@@ -247,27 +259,36 @@ class PaletteEditor(QtW.QWidget):
         self.hex_input.blockSignals(False)
 
     def on_slider_changed(self):
-        r = self.r_slider.value()
-        g = self.g_slider.value()
-        b = self.b_slider.value()
+        _r = MDCOLOR_VALUES[self.r_slider.value()]
+        _g = MDCOLOR_VALUES[self.g_slider.value()]
+        _b = MDCOLOR_VALUES[self.b_slider.value()]
 
-        self.r_val_label.setText(str(r))
-        self.g_val_label.setText(str(g))
-        self.b_val_label.setText(str(b))
+        self.r_val_label.setText(f"0x{_r:02X}")
+        self.g_val_label.setText(f"0x{_g:02X}")
+        self.b_val_label.setText(f"0x{_b:02X}")
 
-        new_color = QColor(r, g, b)
+        new_color = QColor(_r, _g, _b)
+
+        self.hex_input.blockSignals(True)
         self.hex_input.setText(new_color.name().upper())
+        self.hex_input.blockSignals(False)
+
         self.apply_color_change(new_color)
 
     def on_hex_edited(self):
         hex_text = self.hex_input.text()
         color = QColor(hex_text)
         if color.isValid():
-            r = self.snap_to_md_colors(color.red())
-            g = self.snap_to_md_colors(color.green())
-            b = self.snap_to_md_colors(color.blue())
+            _r = self.snap_to_md_colors(color.red())
+            _g = self.snap_to_md_colors(color.green())
+            _b = self.snap_to_md_colors(color.blue())
 
-            snapped_color = QColor(r, g, b)
+            snapped_color = QColor(
+                MDCOLOR_VALUES[_r],
+                MDCOLOR_VALUES[_g],
+                MDCOLOR_VALUES[_b]
+            )
+
             self.select_color(self.selected_index, snapped_color)
             self.apply_color_change(snapped_color)
 
@@ -287,16 +308,17 @@ class PaletteEditor(QtW.QWidget):
 
     @staticmethod
     def snap_to_md_colors(val):
-        # Snaps RGB color value to nearest Mega Drive-compatible color value
-        return min(MDCOLOR_VALUES, key=lambda x: abs(x - val))
+        # Snaps an RGB color value to its corresponding slider index (0-7)
+        val = min(MDCOLOR_VALUES, key=lambda x: abs(x - val))
+        return MDCOLOR_VALUES.index(val)
 
     def create_step_slider(self, callback):
         slider = QtW.QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 255)
-        slider.setSingleStep(36)
-        slider.setPageStep(36)
+        slider.setRange(0, 7)
+        slider.setSingleStep(1)
+        slider.setPageStep(1)
         slider.setTickPosition(QtW.QSlider.TickPosition.TicksBelow)
-        slider.setTickInterval(36)
+        slider.setTickInterval(1)
         slider.valueChanged.connect(callback)
         return slider
 
