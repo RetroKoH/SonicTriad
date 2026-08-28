@@ -5,6 +5,7 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
 from UI.themes import apply_theme
+from Editors.palettes import PaletteEditor
 
 class TriadApp(QtW.QMainWindow):
     def __init__(self, instance):
@@ -35,7 +36,10 @@ class TriadApp(QtW.QMainWindow):
         main_layout.addWidget(self.tabs)
 
         self.projects_tab()
-        self.init_tab("Palettes")
+
+        self.palette_editor = PaletteEditor()
+        self.tabs.addTab(self.palette_editor, "Palettes")
+
         self.init_tab("Art")
         self.init_tab("Animations")
         self.init_tab("Levels")

@@ -1,5 +1,6 @@
 import sys
 import PyQt6.QtWidgets as QtW
+
 from UI.app_window import TriadApp
 from UI.themes import apply_theme
 
