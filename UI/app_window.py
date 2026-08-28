@@ -112,7 +112,7 @@ class TriadApp(QtW.QMainWindow):
             proj_name = self.active_project_data.get("project_name", "Unnamed Project")
 
             # To-Do: Relocate or remove the root directory string
-            info_text = (
+            self.info_label.setText(
                 f"<b>Project:</b> {proj_name}<br><br>"
                 f"<b>Root:</b><br>{self.project_root_dir}<br><br>"
 
@@ -121,12 +121,14 @@ class TriadApp(QtW.QMainWindow):
 
                 f"<b>Assembler:</b> {assembler}"
             )
-            self.info_label.setText(info_text)
 
             self.drop_zone.setText(
                 f"Loaded Project: {proj_name}\n\n"
                 f"Drag & Drop another .json file to switch"
             )
+
+            # Populate Palettes Tab dropdown with project files
+            self.palette_editor.populate_palette_list(resolved_palettes)
 
         except Exception as e:
             self.info_label.setText(f"Error loading project:\n{str(e)}")

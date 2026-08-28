@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -49,6 +51,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_colors = [QColor(0, 0, 0) for _i in range(64)]  # Default 64 colors
         self.boxes = []
         self.selected_index = 0
+        self.active_palette_path = None
 
         self.init_ui()
 
@@ -78,7 +81,21 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # RIGHT PANEL: Editing Controls
         # -----------------------------
-        control_group = QtW.QGroupBox("Color Adjustments")
+        editor_panel = QtW.QVBoxLayout()
+
+        # Palette File Dropdown
+        pal_select_group = QtW.QGroupBox("Select Palette")
+        pal_select_layout = QtW.QVBoxLayout(pal_select_group)
+
+        self.pal_dropdown = QtW.QComboBox()
+        self.pal_dropdown.setToolTip("Select a palette file from the active project")
+        self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
+        pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
+
+        editor_panel.addWidget(pal_select_group)
+
+        # Color Editing Tool
+        control_group = QtW.QGroupBox("Color Editing")
         control_layout = QtW.QVBoxLayout(control_group)
 
         # Selected Index Label
@@ -114,11 +131,63 @@ class PaletteEditor(QtW.QWidget):
         control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
         control_layout.addStretch()
-        main_layout.addWidget(control_group, stretch=1)
+        editor_panel.addWidget(control_group, stretch=1)
+
+        main_layout.addLayout(editor_panel, stretch=1)
 
         # Build initial grid UI
         self.rebuild_grid()
         self.select_color(0, self.palette_colors[0])
+
+    def populate_palette_list(self, palette_paths: list[Path]):
+        self.pal_dropdown.blockSignals(True)
+        self.pal_dropdown.clear()
+
+        if not palette_paths:
+            self.pal_dropdown.addItem("No Palettes Found", userData=None)
+            self.pal_dropdown.setEnabled(False)
+            self.pal_dropdown.blockSignals(False)
+            return
+
+        self.pal_dropdown.setEnabled(True)
+        for path in palette_paths:
+            # Display relative filename to user, store full Path object in itemData
+            self.pal_dropdown.addItem(path.name, userData=path)
+
+        self.pal_dropdown.blockSignals(False)
+
+        # Load the first palette by default
+        self.on_pal_dropdown_changed(0)
+
+    def on_pal_dropdown_changed(self, index: int):
+        path = self.pal_dropdown.itemData(index)
+        if path and isinstance(path, Path):
+            self.load_palette_file(path)
+
+    def load_palette_file(self, path: Path):
+        """Reads binary (.bin/.pal) files."""
+        self.active_palette_path = path
+        if not path.exists():
+            return
+
+        loaded_colors = []
+
+        # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
+        try:
+            with open(path, "rb") as f:
+                data = f.read(256)  # Read up to 128 colors (256 bytes)
+                for i in range(0, len(data), 2):
+                    if i + 1 < len(data):
+                        val = (data[i] << 8) | data[i + 1]
+                        r = ((val >> 1) & 0x07) * 36
+                        g = ((val >> 5) & 0x07) * 36
+                        b = ((val >> 9) & 0x07) * 36
+                        loaded_colors.append(QColor(r, g, b))
+        except Exception:
+            pass
+
+        if loaded_colors:
+            self.set_palette_data(loaded_colors)
 
     def rebuild_grid(self):
         # Clear existing items from layout
