@@ -51,6 +51,7 @@ class PaletteEditor(QtW.QWidget):
         self.boxes = []
         self.selected_index = 0
         self.active_palette_path = None
+        self.project_palette_paths = []
 
         self.init_ui()
 
@@ -91,6 +92,24 @@ class PaletteEditor(QtW.QWidget):
         self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
         pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
 
+        # File Buttons
+        btn_grid = QtW.QGridLayout()
+        self.btn_new = QtW.QPushButton("New")
+        self.btn_load = QtW.QPushButton("Load")
+        self.btn_save = QtW.QPushButton("Save")
+        self.btn_saveas = QtW.QPushButton("Save As...")
+
+        #self.btn_new.clicked.connect(self.new_palette)
+        #self.btn_load.clicked.connect(self.load_palette_dialog)
+        #self.btn_save.clicked.connect(self.save_palette)
+        #self.btn_saveas.clicked.connect(self.save_palette_as)
+
+        btn_grid.addWidget(self.btn_new, 0, 0)
+        btn_grid.addWidget(self.btn_load, 0, 1)
+        btn_grid.addWidget(self.btn_save, 1, 0)
+        btn_grid.addWidget(self.btn_saveas, 1, 1)
+
+        pal_select_layout.addLayout(btn_grid)
         editor_panel.addWidget(pal_select_group)
 
         # Color Editing Tool
