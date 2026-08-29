@@ -21,6 +21,10 @@ class ColorBox(QtW.QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_style()
 
+        # Right-click menu functionality
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(lambda pos, b=self: self.show_edit_menu(pos, b))
+
     def set_color(self, color):
         self.color = color
         self.update_style()
@@ -43,6 +47,39 @@ class ColorBox(QtW.QFrame):
     def mousePressEvent(self, a0):
         if a0.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.index, self.color)
+
+    def show_edit_menu(self, pos, box):
+        menu = QtW.QMenu(self)
+
+        act_insert_before = menu.addAction("Insert Before")
+        act_insert_after = menu.addAction("Insert After")
+        menu.addSeparator()
+        act_clear = menu.addAction("Clear")
+        act_delete = menu.addAction("Delete")
+
+        # Convert the widget-relative position to global screen coordinates for the menu
+        global_pos = box.mapToGlobal(pos)
+
+        # Display the menu and wait for the user to select an action
+        action = menu.exec(global_pos)
+
+        if action == act_insert_before:
+            self.insert_color_before(box.index)
+        elif action == act_insert_after:
+            self.insert_color_after(box.index)
+        elif action == act_clear:
+            self.clear_color(box.index)
+        elif action == act_delete:
+            self.delete_color(box.index)
+
+    def insert_color_before(self, index):
+        pass
+    def insert_color_after(self, index):
+        pass
+    def clear_color(self, index):
+        pass
+    def delete_color(self, index):
+        pass
 
 class PaletteEditor(QtW.QWidget):
     def __init__(self):
@@ -118,6 +155,24 @@ class PaletteEditor(QtW.QWidget):
 
         pal_select_layout.addLayout(btn_grid)
         editor_panel.addWidget(pal_select_group)
+
+        # Color Entry Edit Buttons
+        pal_edit_group = QtW.QGroupBox("Edit Palette")
+        pal_edit_layout = QtW.QVBoxLayout(pal_edit_group)
+
+        # Edit Buttons
+        btn_grid_edit = QtW.QGridLayout()
+        self.btn_add = QtW.QPushButton("Add")
+        self.btn_subtract = QtW.QPushButton("Remove")
+
+        #self.btn_add.clicked.connect(self.palette_edit_add)
+        #self.btn_subtract.clicked.connect(self.palette_edit_remove)
+
+        btn_grid_edit.addWidget(self.btn_add, 0, 0)
+        btn_grid_edit.addWidget(self.btn_subtract, 0, 1)
+
+        pal_edit_layout.addLayout(btn_grid_edit)
+        editor_panel.addWidget(pal_edit_group)
 
         # Color Editing Tool
         control_group = QtW.QGroupBox("Color Editing")
