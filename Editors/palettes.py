@@ -100,18 +100,21 @@ class PaletteEditor(QtW.QWidget):
         self.btn_load = QtW.QPushButton("Load")
         self.btn_save = QtW.QPushButton("Save")
         self.btn_saveas = QtW.QPushButton("Save As...")
-        for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas):
-            btn.setFixedWidth(60)
+        self.btn_remove = QtW.QPushButton("Remove")
+        for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas, self.btn_remove):
+            btn.setFixedWidth(55)
 
         self.btn_new.clicked.connect(self.new_palette_file)
         self.btn_load.clicked.connect(self.load_palette_file)
         self.btn_save.clicked.connect(self.save_palette_file)
         self.btn_saveas.clicked.connect(self.save_palette_file_as)
+        self.btn_remove.clicked.connect(self.remove_palette_file)
 
         btn_grid.addWidget(self.btn_new, 0, 0)
         btn_grid.addWidget(self.btn_load, 0, 1)
         btn_grid.addWidget(self.btn_save, 0, 2)
         btn_grid.addWidget(self.btn_saveas, 0, 3)
+        btn_grid.addWidget(self.btn_remove, 0, 4)
 
         pal_select_layout.addLayout(btn_grid)
         editor_panel.addWidget(pal_select_group)
@@ -301,6 +304,54 @@ class PaletteEditor(QtW.QWidget):
 
         # Add path to the editor's list and select it for editing
         self.register_and_select_palette(path)
+
+    def remove_palette_file(self):
+        if not self.active_palette_path:
+            return
+
+        reply = QtW.QMessageBox.question(
+            self,
+            "Remove Palette",
+            f"Are you sure you want to remove '{self.active_palette_path.name}' from the project?\n\n"
+            "Note: The actual file will NOT be deleted from your directory.",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No
+        )
+
+        # Exit if confirmation fails
+        if reply != QtW.QMessageBox.StandardButton.Yes:
+            return
+
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+
+        # Remove the palette from the JSON project file
+        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+            # Determine the exact relative path string in the file
+            if project_dir and self.active_palette_path.is_relative_to(project_dir):
+                relative_path = str(self.active_palette_path.relative_to(project_dir))
+            else:
+                relative_path = str(self.active_palette_path)
+
+            palettes_list = main_win.active_project_data.get("palettes", [])
+            if relative_path in palettes_list:
+                palettes_list.remove(relative_path)
+
+            # Persist project JSON changes back to disk
+            project_json_path = getattr(main_win, "active_project_json_path", None)
+            if project_json_path and Path(project_json_path).exists():
+                try:
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(main_win.active_project_data, f, indent=2)
+                except Exception as e:
+                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+        # Remove entry and refresh dropdown
+        if self.active_palette_path in self.project_palette_paths:
+            self.project_palette_paths.remove(self.active_palette_path)
+
+        self.active_palette_path = None
+        self.populate_palette_list(self.project_palette_paths)
 
     def write_palette_to_disk(self, path: Path):
         """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
