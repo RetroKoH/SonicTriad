@@ -15,6 +15,7 @@ class ColorBox(QtW.QFrame):
         super().__init__()
         self.index = index
         self.color = color
+        self.editor = None
         self.is_selected = False
 
         self.setFixedSize(32, 32)
@@ -64,22 +65,46 @@ class ColorBox(QtW.QFrame):
         action = menu.exec(global_pos)
 
         if action == act_insert_before:
-            self.insert_color_before(box.index)
+            self.insert_color("before", self.index)
         elif action == act_insert_after:
-            self.insert_color_after(box.index)
+            self.insert_color("after", self.index)
         elif action == act_clear:
-            self.clear_color(box.index)
+            self.clear_color(self.index)
         elif action == act_delete:
-            self.delete_color(box.index)
+            self.delete_color(self.index)
 
-    def insert_color_before(self, index):
-        pass
-    def insert_color_after(self, index):
-        pass
+    def insert_color(self, mode, target_index):
+        if len(self.editor.palette_colors) >= 128:
+            QtW.QMessageBox.warning(
+                self, "Palette Size Restriction", "Palette cannot have more than 128 colors."
+            )
+            return
+
+        index = target_index if mode == "before" else target_index + 1
+        self.editor.palette_colors.insert(index, QColor(0, 0, 0))
+        self.editor.rebuild_grid()
+        self.editor.select_color(index, self.editor.palette_colors[index])
+
     def clear_color(self, index):
-        pass
+        black = QColor(0, 0, 0)
+        self.editor.palette_colors[index] = black
+        self.editor.boxes[index].set_color(black)
+
+        if self.editor.selected_index == index:
+            self.editor.select_color(index, black)
+
     def delete_color(self, index):
-        pass
+        if len(self.editor.palette_colors) <= 1:
+            QtW.QMessageBox.warning(
+                self, "Palette Size Restriction", "Palette must have at least 1 color."
+            )
+            return
+
+        self.editor.palette_colors.pop(index)
+        self.editor.rebuild_grid()
+
+        new_index = min(index, len(self.editor.palette_colors) - 1)
+        self.editor.select_color(new_index, self.editor.palette_colors[new_index])
 
 class PaletteEditor(QtW.QWidget):
     def __init__(self):
@@ -423,6 +448,7 @@ class PaletteEditor(QtW.QWidget):
         row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
 
         box = ColorBox(idx)
+        box.editor = self
         box.clicked.connect(self.select_color)
         self.grid_layout.addWidget(box, row, col)
         self.boxes.append(box)
@@ -559,6 +585,7 @@ class PaletteEditor(QtW.QWidget):
             row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
 
             box = ColorBox(idx, color)
+            box.editor = self
             box.clicked.connect(self.select_color)
             self.grid_layout.addWidget(box, row, col)
             self.boxes.append(box)
