@@ -96,6 +96,9 @@ class TriadApp(QtW.QMainWindow):
         # Root disassembly directory is that of the project file
         self.project_root_dir = json_path.parent
 
+        # Save path so editor can write back updates
+        self.active_project_json_path = json_path
+
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 self.active_project_data = json.load(f)

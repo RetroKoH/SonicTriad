@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -98,16 +100,18 @@ class PaletteEditor(QtW.QWidget):
         self.btn_load = QtW.QPushButton("Load")
         self.btn_save = QtW.QPushButton("Save")
         self.btn_saveas = QtW.QPushButton("Save As...")
+        for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas):
+            btn.setFixedWidth(60)
 
-        #self.btn_new.clicked.connect(self.new_palette)
-        #self.btn_load.clicked.connect(self.load_palette_dialog)
-        #self.btn_save.clicked.connect(self.save_palette)
-        #self.btn_saveas.clicked.connect(self.save_palette_as)
+        self.btn_new.clicked.connect(self.new_palette_file)
+        self.btn_load.clicked.connect(self.load_palette_file)
+        self.btn_save.clicked.connect(self.save_palette_file)
+        self.btn_saveas.clicked.connect(self.save_palette_file_as)
 
         btn_grid.addWidget(self.btn_new, 0, 0)
         btn_grid.addWidget(self.btn_load, 0, 1)
-        btn_grid.addWidget(self.btn_save, 1, 0)
-        btn_grid.addWidget(self.btn_saveas, 1, 1)
+        btn_grid.addWidget(self.btn_save, 0, 2)
+        btn_grid.addWidget(self.btn_saveas, 0, 3)
 
         pal_select_layout.addLayout(btn_grid)
         editor_panel.addWidget(pal_select_group)
@@ -157,7 +161,109 @@ class PaletteEditor(QtW.QWidget):
         self.rebuild_grid()
         self.select_color(0, self.palette_colors[0])
 
+    def new_palette_file(self):
+        count, ok = QtW.QInputDialog.getInt(
+            self, "New Palette", "Number of colors:", 16, 1, 128, 1
+        )
+        if not ok:
+            return
+
+        # Init new palette as all black
+        new_pal = [QColor(0, 0, 0) for _i in range(count)]
+
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new palette file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "Create Palette File", start_dir, "Genesis Palette (*.bin *.pal);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+
+        # Add palette file to project file
+        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+            # Determine relative path string to write into JSON
+            if project_dir and path.is_relative_to(project_dir):
+                relative_path = str(path.relative_to(project_dir))
+            else:
+                relative_path = str(path)
+
+            palettes_list = main_win.active_project_data.setdefault("palettes", [])
+            if relative_path not in palettes_list:
+                palettes_list.append(relative_path)
+
+            # Persist project JSON changes back to disk
+            project_json_path = getattr(main_win, "active_project_json_path", None)
+            if project_json_path and Path(project_json_path).exists():
+                try:
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(main_win.active_project_data, f, indent=2)
+                except Exception as e:
+                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+        # Add path to the editor's list and select it for editing
+        self.register_and_select_palette(path)
+
+        # Update palette grid and save the new file to disk
+        self.set_palette_data(new_pal)
+        self.write_palette_to_disk(path)
+
+    def load_palette_file(self):
+        pass
+
+    def save_palette_file(self):
+        pass
+
+    def save_palette_file_as(self):
+        pass
+
+    def write_palette_to_disk(self, path: Path):
+        """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
+        binary_data = bytearray()
+        for color in self.palette_colors:
+            _r = self.snap_to_md_colors(color.red())
+            _g = self.snap_to_md_colors(color.green())
+            _b = self.snap_to_md_colors(color.blue())
+
+            # store in 0BGR format
+            binary_data.append(_b & 0xFF)
+            binary_data.append((_g << 4) | _r)
+
+
+        try:
+            with open(path, "wb") as f:
+                f.write(binary_data)
+        except Exception as e:
+            QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
+
+    def register_and_select_palette(self, path: Path):
+        # Update the current palette file reference
+        self.active_palette_path = path
+
+        # Add it to the project if needed
+        if path not in self.project_palette_paths:
+            self.project_palette_paths.append(path)
+
+        # Repopulate the dropdown list
+        self.populate_palette_list(self.project_palette_paths)
+
+        # Set dropdown selection to newly added palette
+        for i in range(self.pal_dropdown.count()):
+            item_data = self.pal_dropdown.itemData(i)
+            if self.pal_dropdown.itemData(i) == path:
+                self.pal_dropdown.blockSignals(True)
+                self.pal_dropdown.setCurrentIndex(i)
+                self.pal_dropdown.blockSignals(False)
+                break
+
     def populate_palette_list(self, palette_paths: list[Path]):
+        self.project_palette_paths = list(palette_paths)
+
         self.pal_dropdown.blockSignals(True)
         self.pal_dropdown.clear()
 
@@ -168,7 +274,7 @@ class PaletteEditor(QtW.QWidget):
             return
 
         self.pal_dropdown.setEnabled(True)
-        for path in palette_paths:
+        for path in self.project_palette_paths:
             # Display relative filename to user, store full Path object in itemData
             self.pal_dropdown.addItem(path.name, userData=path)
 
