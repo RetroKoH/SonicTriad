@@ -214,13 +214,93 @@ class PaletteEditor(QtW.QWidget):
         self.write_palette_to_disk(path)
 
     def load_palette_file(self):
-        pass
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Load dialog for palette file
+        file_path, _ = QtW.QFileDialog.getOpenFileName(
+            self, "Load Palette", start_dir, "Palette Files (*.bin *.pal *.json);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+
+        # Add palette file to project file, if it isn't already present
+        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+            # Determine relative path string to write into JSON
+            if project_dir and path.is_relative_to(project_dir):
+                relative_path = str(path.relative_to(project_dir))
+            else:
+                relative_path = str(path)
+
+            palettes_list = main_win.active_project_data.setdefault("palettes", [])
+            if relative_path not in palettes_list:
+                palettes_list.append(relative_path)
+
+            # Persist project JSON changes back to disk
+            project_json_path = getattr(main_win, "active_project_json_path", None)
+            if project_json_path and Path(project_json_path).exists():
+                try:
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(main_win.active_project_data, f, indent=2)
+                except Exception as e:
+                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+        # Add path to the editor's list and select it for editing
+        self.register_and_select_palette(path)
+
+        # Update palette grid with loaded palette
+        self.load_palette_data(path)
 
     def save_palette_file(self):
-        pass
+        if self.active_palette_path and self.active_palette_path.parent.exists():
+            self.write_palette_to_disk(self.active_palette_path)
+        else:
+            self.save_palette_file_as()
 
     def save_palette_file_as(self):
-        pass
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "Save Palette As", start_dir, "Genesis Palette (*.bin *.pal);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+
+        # Add palette file to project file, if its name isn't already present
+        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+            # Determine relative path string to write into JSON
+            if project_dir and path.is_relative_to(project_dir):
+                relative_path = str(path.relative_to(project_dir))
+            else:
+                relative_path = str(path)
+
+            palettes_list = main_win.active_project_data.setdefault("palettes", [])
+            if relative_path not in palettes_list:
+                palettes_list.append(relative_path)
+
+            # Persist project JSON changes back to disk
+            project_json_path = getattr(main_win, "active_project_json_path", None)
+            if project_json_path and Path(project_json_path).exists():
+                try:
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(main_win.active_project_data, f, indent=2)
+                except Exception as e:
+                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+        # Savr new palette copy to disk
+        self.write_palette_to_disk(path)
+
+        # Add path to the editor's list and select it for editing
+        self.register_and_select_palette(path)
 
     def write_palette_to_disk(self, path: Path):
         """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
@@ -231,9 +311,9 @@ class PaletteEditor(QtW.QWidget):
             _b = self.snap_to_md_colors(color.blue())
 
             # store in 0BGR format
-            binary_data.append(_b & 0xFF)
-            binary_data.append((_g << 4) | _r)
-
+            binary_data.append((_b << 1) & 0xFF)
+            val = (_g << 5) | (_r << 1)
+            binary_data.append(val & 0xFF)
 
         try:
             with open(path, "wb") as f:
@@ -253,13 +333,16 @@ class PaletteEditor(QtW.QWidget):
         self.populate_palette_list(self.project_palette_paths)
 
         # Set dropdown selection to newly added palette
+        target_index = -1
         for i in range(self.pal_dropdown.count()):
             item_data = self.pal_dropdown.itemData(i)
-            if self.pal_dropdown.itemData(i) == path:
-                self.pal_dropdown.blockSignals(True)
-                self.pal_dropdown.setCurrentIndex(i)
-                self.pal_dropdown.blockSignals(False)
+            if item_data and Path(item_data) == path:
+                target_index = i
                 break
+
+        # Set new current index, then unblock signals again
+        if target_index >= 0:
+            self.pal_dropdown.setCurrentIndex(target_index)
 
     def populate_palette_list(self, palette_paths: list[Path]):
         self.project_palette_paths = list(palette_paths)
@@ -278,18 +361,21 @@ class PaletteEditor(QtW.QWidget):
             # Display relative filename to user, store full Path object in itemData
             self.pal_dropdown.addItem(path.name, userData=path)
 
+        # Silently reset the selection
+        self.pal_dropdown.setCurrentIndex(-1)
         self.pal_dropdown.blockSignals(False)
 
-        # Load the first palette by default
-        self.on_pal_dropdown_changed(0)
+        # Only auto-load index 0 if we aren't currently targeting a specific file
+        if not self.active_palette_path and self.pal_dropdown.count() > 0:
+            self.pal_dropdown.setCurrentIndex(0)
 
     def on_pal_dropdown_changed(self, index: int):
         path = self.pal_dropdown.itemData(index)
         if path and isinstance(path, Path):
-            self.load_palette_file(path)
+            self.load_palette_data(path)
 
-    def load_palette_file(self, path: Path):
-        """Reads binary (.bin/.pal) files."""
+    def load_palette_data(self, path: Path):
+        """Reads binary palette data"""
         self.active_palette_path = path
         if not path.exists():
             return
