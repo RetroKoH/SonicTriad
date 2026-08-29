@@ -143,9 +143,6 @@ class DropWidget(QtW.QLabel):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, a0):
-        if a0 is None:
-            return
-
         if a0.mimeData().hasUrls():
             # Check if at least one dragged file ends with .json
             for url in a0.mimeData().urls():
@@ -155,9 +152,6 @@ class DropWidget(QtW.QLabel):
         a0.ignore()
 
     def dropEvent(self, a0):
-        if a0 is None:
-            return
-
         for url in a0.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith(".json"):

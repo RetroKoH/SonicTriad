@@ -47,7 +47,10 @@ class ColorBox(QtW.QFrame):
 
     def mousePressEvent(self, a0):
         if a0.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.index, self.color)
+            modifiers = a0.modifiers()
+            if self.editor:
+                self.editor.select_colors(self.index, modifiers)
+            #self.clicked.emit(self.index, self.color)
 
     def show_edit_menu(self, pos, box):
         menu = QtW.QMenu(self)
@@ -87,11 +90,11 @@ class ColorBox(QtW.QFrame):
 
     def clear_color(self, index):
         black = QColor(0, 0, 0)
-        self.editor.palette_colors[index] = black
-        self.editor.boxes[index].set_color(black)
+        for idx in self.editor.selected_indices:
+            self.editor.palette_colors[idx] = black
+            self.editor.boxes[idx].set_color(black)
 
-        if self.editor.selected_index == index:
-            self.editor.select_color(index, black)
+        self.editor.update_preview_box(black)
 
     def delete_color(self, index):
         if len(self.editor.palette_colors) <= 1:
@@ -113,7 +116,10 @@ class PaletteEditor(QtW.QWidget):
         # Internal Palette Storage (1 to 128 colors)
         self.palette_colors = [QColor(0, 0, 0) for _i in range(64)]  # Default 64 colors
         self.boxes = []
-        self.selected_index = 0
+
+        self.selected_indices = []
+        self.active_index = 0
+
         self.active_palette_path = None
         self.project_palette_paths = []
 
@@ -125,7 +131,12 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # LEFT PANEL: Dynamic Color Grid
         # -----------------------------
-        color_box = QtW.QGroupBox("Palette Grid (Up to 128 Colors)")
+        color_box = QtW.QGroupBox(
+            "Palette Grid (Left Click: Select;"+
+            "    Left+Shift: Mass Select;"+
+            "    Left+Ctrl: Toggle Selection;"+
+            "    Right Click: Context Menu)"
+        )
         color_layout = QtW.QVBoxLayout(color_box)
 
         # Scroll area in case palette grid extends past the window border
@@ -240,9 +251,8 @@ class PaletteEditor(QtW.QWidget):
 
         main_layout.addLayout(editor_panel, stretch=1)
 
-        # Build initial grid UI
-        self.rebuild_grid()
-        self.select_color(0, self.palette_colors[0])
+        # Build initial grid UI and set selection to color 0
+        self.set_palette_data(self.palette_colors)
 
     def new_palette_file(self):
         count, ok = QtW.QInputDialog.getInt(
@@ -449,7 +459,6 @@ class PaletteEditor(QtW.QWidget):
 
         box = ColorBox(idx)
         box.editor = self
-        box.clicked.connect(self.select_color)
         self.grid_layout.addWidget(box, row, col)
         self.boxes.append(box)
 
@@ -464,8 +473,10 @@ class PaletteEditor(QtW.QWidget):
         self.rebuild_grid()
         # ^ To-Do: Modify this function with a parameter to rebuild from a specific entry onward.
 
-        new_index = min(self.selected_index, len(self.palette_colors) - 1)
-        self.select_color(new_index, self.palette_colors[new_index])
+        new_index = min(self.active_index, len(self.palette_colors) - 1)
+        self.selected_indices = [new_index]
+        self.active_index = new_index
+        self.refresh_selection_ui()
 
     def write_palette_to_disk(self, path: Path):
         """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
@@ -586,26 +597,61 @@ class PaletteEditor(QtW.QWidget):
 
             box = ColorBox(idx, color)
             box.editor = self
-            box.clicked.connect(self.select_color)
             self.grid_layout.addWidget(box, row, col)
             self.boxes.append(box)
 
     def set_palette_data(self, colors: list[QColor]):
-        # Constrain to range [1, 128]
+        # Constrain to range [1, 128]; To-Do: Make the first line optional if palette_colors is already defined
         self.palette_colors = colors[:128] if colors else [QColor(0, 0, 0)]
         self.rebuild_grid()
-        self.select_color(0, self.palette_colors[0])
+        self.selected_indices = [0]
+        self.active_index = 0
+        self.refresh_selection_ui()
 
-    def select_color(self, index, color):
-        # Update active selection highlighting
-        if 0 <= self.selected_index < len(self.boxes):
-            self.boxes[self.selected_index].set_selected(False)
+    def select_colors(self, index: int, modifiers):
+        """Processes standard click, Ctrl+click, and Shift+click selections."""
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            # CTRL+CLICK: Toggle selection
+            if index in self.selected_indices:
+                self.selected_indices.remove(index)
+                # Make sure we don't end up with zero selections
+                if not self.selected_indices:
+                    self.selected_indices = [self.active_index]
+            else:
+                self.selected_indices.append(index)
+                self.active_index = index  # Make the newly toggled item the active index
 
-        self.selected_index = index
-        if 0 <= index < len(self.boxes):
-            self.boxes[index].set_selected(True)
+        elif modifiers & Qt.KeyboardModifier.ShiftModifier:
+            # SHIFT+CLICK: Select a range, starting from the active index
+            start, end = self.active_index, index
+            step = 1 if start <= end else -1
 
-        self.index_label.setText(f"Selected Color: #{index}")
+            for i in range(start, end + step, step):
+                if i not in self.selected_indices:
+                    self.selected_indices.append(i)
+            self.active_index = index
+
+        else:
+            # NORMAL CLICK: Clear group selection (if any), and pick a single color
+            self.selected_indices = [index]
+            self.active_index = index
+
+        self.refresh_selection_ui()
+
+    def refresh_selection_ui(self):
+        # Update active selection highlighting for all boxes
+        for idx, box in enumerate(self.boxes):
+            box.set_selected(idx in self.selected_indices)
+
+        # Dynamic selection text
+        count = len(self.selected_indices)
+        if count > 1:
+            self.index_label.setText(f"Selected: {count} Colors (Active: #{self.active_index})")
+        else:
+            self.index_label.setText(f"Selected Color: #{self.active_index}")
+
+        # Editing panel will still reflect the active index color
+        active_color = self.palette_colors[self.active_index]
 
         # Block input signals
         self.r_slider.blockSignals(True)
@@ -614,9 +660,9 @@ class PaletteEditor(QtW.QWidget):
         self.hex_input.blockSignals(True)
 
         # Now, update sliders and preview safely
-        _r = self.snap_to_md_colors(color.red())
-        _g = self.snap_to_md_colors(color.green())
-        _b = self.snap_to_md_colors(color.blue())
+        _r = self.snap_to_md_colors(active_color.red())
+        _g = self.snap_to_md_colors(active_color.green())
+        _b = self.snap_to_md_colors(active_color.blue())
 
         self.r_slider.setValue(_r)
         self.g_slider.setValue(_g)
@@ -626,8 +672,8 @@ class PaletteEditor(QtW.QWidget):
         self.g_val_label.setText(f"0x{MDCOLOR_VALUES[_g]:02X}")
         self.b_val_label.setText(f"0x{MDCOLOR_VALUES[_b]:02X}")
 
-        self.hex_input.setText(color.name().upper())
-        self.update_preview_box(color)
+        self.hex_input.setText(active_color.name().upper())
+        self.update_preview_box(active_color)
 
         # Unblock input signals
         self.r_slider.blockSignals(False)
@@ -666,12 +712,13 @@ class PaletteEditor(QtW.QWidget):
                 MDCOLOR_VALUES[_b]
             )
 
-            self.select_color(self.selected_index, snapped_color)
+            # To-Do: Decide whether to apply to all colors or only active color (like below)
             self.apply_color_change(snapped_color)
+            self.refresh_selection_ui()
 
     def apply_color_change(self, color):
-        self.palette_colors[self.selected_index] = color
-        self.boxes[self.selected_index].set_color(color)
+        self.palette_colors[self.active_index] = color
+        self.boxes[self.active_index].set_color(color)
         self.update_preview_box(color)
 
     def update_preview_box(self, color):
