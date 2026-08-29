@@ -165,8 +165,8 @@ class PaletteEditor(QtW.QWidget):
         self.btn_add = QtW.QPushButton("Add")
         self.btn_subtract = QtW.QPushButton("Remove")
 
-        #self.btn_add.clicked.connect(self.palette_edit_add)
-        #self.btn_subtract.clicked.connect(self.palette_edit_remove)
+        self.btn_add.clicked.connect(self.edit_palette_add_color)
+        self.btn_subtract.clicked.connect(self.edit_palette_remove_color)
 
         btn_grid_edit.addWidget(self.btn_add, 0, 0)
         btn_grid_edit.addWidget(self.btn_subtract, 0, 1)
@@ -407,6 +407,39 @@ class PaletteEditor(QtW.QWidget):
 
         self.active_palette_path = None
         self.populate_palette_list(self.project_palette_paths)
+
+    def edit_palette_add_color(self):
+        length = len(self.palette_colors)
+        if length >= 128:
+            QtW.QMessageBox.warning(
+                self, "Palette Size Restriction", "Palette cannot have more than 128 colors."
+            )
+            return
+
+        self.palette_colors.append(QColor(0, 0, 0))
+
+        MAX_COLUMNS = 16
+        idx = length
+        row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+
+        box = ColorBox(idx)
+        box.clicked.connect(self.select_color)
+        self.grid_layout.addWidget(box, row, col)
+        self.boxes.append(box)
+
+    def edit_palette_remove_color(self):
+        if len(self.palette_colors) <= 1:
+            QtW.QMessageBox.warning(
+                self, "Palette Size Restriction", "Palette must have at least 1 color."
+            )
+            return
+
+        self.palette_colors.pop()
+        self.rebuild_grid()
+        # ^ To-Do: Modify this function with a parameter to rebuild from a specific entry onward.
+
+        new_index = min(self.selected_index, len(self.palette_colors) - 1)
+        self.select_color(new_index, self.palette_colors[new_index])
 
     def write_palette_to_disk(self, path: Path):
         """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
