@@ -260,11 +260,11 @@ class PaletteEditor(QtW.QWidget):
         for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas, self.btn_remove):
             btn.setFixedWidth(55)
 
-        self.btn_new.clicked.connect(self.new_palette_file)
-        self.btn_load.clicked.connect(self.load_palette_file)
-        self.btn_save.clicked.connect(self.save_palette_file)
-        self.btn_saveas.clicked.connect(self.save_palette_file_as)
-        self.btn_remove.clicked.connect(self.remove_palette_file)
+        self.btn_new.clicked.connect(self.file_palette_new)
+        self.btn_load.clicked.connect(self.file_palette_load)
+        self.btn_save.clicked.connect(self.file_palette_save)
+        self.btn_saveas.clicked.connect(self.file_palette_save_as)
+        self.btn_remove.clicked.connect(self.file_palette_remove)
 
         btn_grid.addWidget(self.btn_new, 0, 0)
         btn_grid.addWidget(self.btn_load, 0, 1)
@@ -281,14 +281,17 @@ class PaletteEditor(QtW.QWidget):
 
         # Edit Buttons (Features to be considered: Undo, Redo, Resize (Add/Remove), Shift)
         btn_grid_edit = QtW.QGridLayout()
-        self.btn_add = QtW.QPushButton("Add")
-        self.btn_subtract = QtW.QPushButton("Remove")
+        self.btn_undo = QtW.QPushButton("Undo")
+        self.btn_redo = QtW.QPushButton("Redo")
+        self.btn_resize = QtW.QPushButton("Resize")
+        for btn in (self.btn_undo, self.btn_redo, self.btn_resize):
+            btn.setFixedWidth(60)
 
-        self.btn_add.clicked.connect(self.edit_palette_add_color)
-        self.btn_subtract.clicked.connect(self.edit_palette_remove_color)
+        self.btn_resize.clicked.connect(self.edit_palette_resize)
 
-        btn_grid_edit.addWidget(self.btn_add, 0, 0)
-        btn_grid_edit.addWidget(self.btn_subtract, 0, 1)
+        btn_grid_edit.addWidget(self.btn_undo, 0, 0)
+        btn_grid_edit.addWidget(self.btn_redo, 0, 1)
+        btn_grid_edit.addWidget(self.btn_resize, 0, 2)
 
         pal_edit_layout.addLayout(btn_grid_edit)
         editor_panel.addWidget(pal_edit_group)
@@ -356,10 +359,12 @@ class PaletteEditor(QtW.QWidget):
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
 
-    def new_palette_file(self):
+    def file_palette_new(self):
         count, ok = QtW.QInputDialog.getInt(
             self, "New Palette", "Number of colors:", 16, 1, 128, 1
         )
+
+        # Exit if the user cancels
         if not ok:
             return
 
@@ -408,7 +413,7 @@ class PaletteEditor(QtW.QWidget):
         self.set_palette_data(new_pal)
         self.write_palette_to_disk(path)
 
-    def load_palette_file(self):
+    def file_palette_load(self):
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -450,13 +455,13 @@ class PaletteEditor(QtW.QWidget):
         # Update palette grid with loaded palette
         self.load_palette_data(path)
 
-    def save_palette_file(self):
+    def file_palette_save(self):
         if self.active_palette_path and self.active_palette_path.parent.exists():
             self.write_palette_to_disk(self.active_palette_path)
         else:
-            self.save_palette_file_as()
+            self.file_palette_save_as()
 
-    def save_palette_file_as(self):
+    def file_palette_save_as(self):
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -497,7 +502,7 @@ class PaletteEditor(QtW.QWidget):
         # Add path to the editor's list and select it for editing
         self.register_and_select_palette(path)
 
-    def remove_palette_file(self):
+    def file_palette_remove(self):
         if not self.active_palette_path:
             return
 
@@ -545,40 +550,40 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.populate_palette_list(self.project_palette_paths)
 
-    def edit_palette_add_color(self):
-        length = len(self.palette_colors)
-        if length >= 128:
-            QtW.QMessageBox.warning(
-                self, "Palette Size Restriction", "Palette cannot have more than 128 colors."
-            )
+    def edit_palette_resize(self):
+        current_size = len(self.palette_colors)
+        new_size, ok = QtW.QInputDialog.getInt(
+            self, "Resize Palette", "Number of colors:", current_size, 1, 128, 1
+        )
+
+        # Exit if the user cancels or doesn't change the size
+        if not ok or new_size == current_size:
             return
 
-        self.palette_colors.append(QColor(0, 0, 0))
+        if new_size > current_size:
+            # Append black colors
+            self.palette_colors.extend([QColor(0, 0, 0)] * (new_size - current_size))
 
-        MAX_COLUMNS = 16
-        idx = length
-        row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+            # Rebuild starting from the first newly added index
+            self.rebuild_grid(current_size)
 
-        box = ColorBox(idx)
-        box.editor = self
-        self.grid_layout.addWidget(box, row, col)
-        self.boxes.append(box)
+        else:
+            # Truncate the palette
+            self.palette_colors = self.palette_colors[:new_size]
+            self.rebuild_grid(new_size)
 
-    def edit_palette_remove_color(self):
-        if len(self.palette_colors) <= 1:
-            QtW.QMessageBox.warning(
-                self, "Palette Size Restriction", "Palette must have at least 1 color."
-            )
-            return
+            # Filter out-of-bounds selected indices
+            self.selected_indices = [idx for idx in self.selected_indices if idx < new_size]
 
-        # This COULD be optimized, but I'll replace Add/Remove with Resize, so I won't bother
-        self.palette_colors.pop()
-        self.rebuild_grid(len(self.palette_colors))
+            # If all selected colors were truncated, fallback to the last valid color
+            if not self.selected_indices:
+                self.selected_indices = [new_size - 1]
 
-        new_index = min(self.active_index, len(self.palette_colors) - 1)
-        self.selected_indices = [new_index]
-        self.active_index = new_index
-        self.refresh_selection_ui()
+            # Adjust the active index if out-of-bounds
+            if self.active_index >= new_size:
+                self.active_index = self.selected_indices[-1]
+
+            self.refresh_selection_ui()
 
     def write_palette_to_disk(self, path: Path):
         """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
