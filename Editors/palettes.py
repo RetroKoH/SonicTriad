@@ -108,8 +108,8 @@ class ColorBox(QtW.QFrame):
                 if len(self.editor.palette_colors) > 1:
                     self.editor.palette_colors.pop(i)
 
-            # To-Do: Implement partial rebuild
-            self.editor.rebuild_grid()
+            # Rebuild starting from the lowest deleted index
+            self.editor.rebuild_grid(sorted_indices[-1])
 
             # Adjust selection index (Parameter is always passed, but its only use it here)
             new_index = min(target_index, len(self.editor.palette_colors) - 1)
@@ -159,8 +159,8 @@ class ColorBox(QtW.QFrame):
             for i, color in enumerate(self.editor.clipboard_colors):
                 self.editor.palette_colors.insert(start + i, QColor(color))
 
-        # To-Do: Implement partial rebuild
-        self.editor.rebuild_grid()
+        # Rebuild from the start index onward
+        self.editor.rebuild_grid(start)
 
         end = min(start + clipboard_length, len(self.editor.palette_colors))
 
@@ -178,7 +178,7 @@ class ColorBox(QtW.QFrame):
 
         index = target_index if mode == "before" else target_index + 1
         self.editor.palette_colors.insert(index, QColor(0, 0, 0))
-        self.editor.rebuild_grid()
+        self.editor.rebuild_grid(index)
         self.editor.selected_indices = [index]
         self.editor.active_index = index
         self.editor.refresh_selection_ui()
@@ -199,7 +199,7 @@ class ColorBox(QtW.QFrame):
             return
 
         self.editor.palette_colors.pop(index)
-        self.editor.rebuild_grid()
+        self.editor.rebuild_grid(index)
 
         new_index = min(index, len(self.editor.palette_colors) - 1)
         self.editor.selected_indices = [new_index]
@@ -290,10 +290,10 @@ class PaletteEditor(QtW.QWidget):
         editor_panel.addWidget(pal_select_group)
 
         # Color Entry Edit Buttons
-        pal_edit_group = QtW.QGroupBox("Edit Palette")
+        pal_edit_group = QtW.QGroupBox("Palette Editing")
         pal_edit_layout = QtW.QVBoxLayout(pal_edit_group)
 
-        # Edit Buttons
+        # Edit Buttons (Features to be considered: Undo, Redo, Resize (Add/Remove), Shift)
         btn_grid_edit = QtW.QGridLayout()
         self.btn_add = QtW.QPushButton("Add")
         self.btn_subtract = QtW.QPushButton("Remove")
@@ -343,8 +343,27 @@ class PaletteEditor(QtW.QWidget):
         control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
         control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
-        control_layout.addStretch()
+        #control_layout.addStretch()
         editor_panel.addWidget(control_group, stretch=1)
+
+        # Advanced Editing Functions
+        advanced_group = QtW.QGroupBox("Advanced Functions")
+        advanced_layout = QtW.QVBoxLayout(advanced_group)
+
+        # Advanced Option Buttons
+        btn_grid_adv = QtW.QGridLayout()
+        self.btn_blend = QtW.QPushButton("Color Blend")
+        self.btn_grey = QtW.QPushButton("Greyscale")
+        self.btn_invert = QtW.QPushButton("Invert Colors")
+        self.btn_gradient = QtW.QPushButton("Build Gradient")
+
+        btn_grid_adv.addWidget(self.btn_blend, 0, 0)
+        btn_grid_adv.addWidget(self.btn_grey, 1, 0)
+        btn_grid_adv.addWidget(self.btn_invert, 2, 0)
+        btn_grid_adv.addWidget(self.btn_gradient, 3, 0)
+
+        advanced_layout.addLayout(btn_grid_adv)
+        editor_panel.addWidget(advanced_group)
 
         main_layout.addLayout(editor_panel, stretch=1)
 
@@ -566,9 +585,9 @@ class PaletteEditor(QtW.QWidget):
             )
             return
 
+        # This COULD be optimized, but I'll replace Add/Remove with Resize, so I won't bother
         self.palette_colors.pop()
-        self.rebuild_grid()
-        # ^ To-Do: Modify this function with a parameter to rebuild from a specific entry onward.
+        self.rebuild_grid(len(self.palette_colors))
 
         new_index = min(self.active_index, len(self.palette_colors) - 1)
         self.selected_indices = [new_index]
@@ -681,15 +700,21 @@ class PaletteEditor(QtW.QWidget):
         if loaded_colors:
             self.set_palette_data(loaded_colors)
 
-    def rebuild_grid(self):
-        # Clear existing items from layout
-        for box in self.boxes:
-            box.deleteLater()
-        self.boxes.clear()
+    def rebuild_grid(self, index = 0):
+        # Use index to tell Triad how much to rebuild (avoid unnecessary work)
+        index = max(0, min(index, len(self.boxes)))
 
-        # Build grid with 16 columns per row
+        # Clear color boxes, starting with [index]
+        for box in self.boxes[index:]:
+            box.deleteLater()
+
+        # Remove deleted references
+        self.boxes = self.boxes[:index]
+
+        # Build grid (only the missing portion)
         MAX_COLUMNS = 16
-        for idx, color in enumerate(self.palette_colors):
+        for idx in range(index, len(self.palette_colors)):
+            color = self.palette_colors[idx]
             row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
 
             box = ColorBox(idx, color)
