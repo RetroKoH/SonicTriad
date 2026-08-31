@@ -55,6 +55,12 @@ class ColorBox(QtW.QFrame):
     def show_edit_menu(self, pos, box):
         menu = QtW.QMenu(self)
 
+        act_cut = menu.addAction("Cut")
+        act_copy = menu.addAction("Copy")
+        act_paste_before = menu.addAction("Paste Before")
+        act_paste_over = menu.addAction("Paste Over")
+        act_paste_after = menu.addAction("Paste After")
+        menu.addSeparator()
         act_insert_before = menu.addAction("Insert Before")
         act_insert_after = menu.addAction("Insert After")
         menu.addSeparator()
@@ -67,7 +73,17 @@ class ColorBox(QtW.QFrame):
         # Display the menu and wait for the user to select an action
         action = menu.exec(global_pos)
 
-        if action == act_insert_before:
+        if action == act_cut:
+            self.copy_colors(self.index, True)
+        elif action == act_copy:
+            self.copy_colors(self.index)
+        elif action == act_paste_before:
+            self.paste_colors("before", self.index)
+        elif action == act_paste_over:
+            self.paste_colors("over", self.index)
+        elif action == act_paste_after:
+            self.paste_colors("after", self.index)
+        elif action == act_insert_before:
             self.insert_color("before", self.index)
         elif action == act_insert_after:
             self.insert_color("after", self.index)
@@ -75,6 +91,83 @@ class ColorBox(QtW.QFrame):
             self.clear_color(self.index)
         elif action == act_delete:
             self.delete_color(self.index)
+
+    def copy_colors(self, target_index, cut=False):
+        if not self.editor.selected_indices:
+            return
+
+        # Sort colors to keep them in visual order when pasting
+        sorted_indices = sorted(self.editor.selected_indices)
+        self.editor.clipboard_colors = [QColor(self.editor.palette_colors[i]) for i in sorted_indices]
+
+        # If only Copying, stop here. Otherwise, remove copied colors
+        if cut:
+            # Delete in reverse order to avoid issues with index shifting
+            sorted_indices.reverse()
+            for i in sorted_indices:
+                if len(self.editor.palette_colors) > 1:
+                    self.editor.palette_colors.pop(i)
+
+            # To-Do: Implement partial rebuild
+            self.editor.rebuild_grid()
+
+            # Adjust selection index (Parameter is always passed, but its only use it here)
+            new_index = min(target_index, len(self.editor.palette_colors) - 1)
+            self.editor.selected_indices = [new_index]
+            self.editor.active_index = new_index
+            self.editor.refresh_selection_ui()
+
+    def paste_colors(self, mode, target_index):
+        if not self.editor.clipboard_colors:
+            return
+
+        clipboard_length = len(self.editor.clipboard_colors)
+
+        if mode == "over":
+            # Overwrite existing slots
+            start = target_index
+
+            if max(len(self.editor.palette_colors), start + clipboard_length) > 128:
+                QtW.QMessageBox.warning(
+                    self, "Palette Size Restriction",
+                    f"Pasting {clipboard_length} colors here exceeds the 128 color limit. " +
+                    "Some colors will not be pasted."
+                )
+
+            # Paste over, and clamp palette at 128.
+            for _i, color in enumerate(self.editor.clipboard_colors):
+                idx = start + _i
+                if idx < len(self.editor.palette_colors):
+                    self.editor.palette_colors[idx] = QColor(color)
+                elif idx < 128:
+                    self.editor.palette_colors.append(QColor(color))
+                else:
+                    break
+
+        else:
+            # Paste before or after the current index, shifting other colors accordingly
+            start = target_index if mode == "before" else target_index + 1
+
+            if len(self.editor.palette_colors) + clipboard_length > 128:
+                QtW.QMessageBox.warning(
+                    self, "Palette Size Restriction",
+                    f"Pasting {clipboard_length} colors here exceeds the 128 color limit. " +
+                    "Some colors will not be pasted."
+                )
+
+            # Paste and shift, and clamp palette at 128.
+            for i, color in enumerate(self.editor.clipboard_colors):
+                self.editor.palette_colors.insert(start + i, QColor(color))
+
+        # To-Do: Implement partial rebuild
+        self.editor.rebuild_grid()
+
+        end = min(start + clipboard_length, len(self.editor.palette_colors))
+
+        # Automatically select the newly pasted colors
+        self.editor.active_index = start
+        self.editor.selected_indices = list(range(start, end))
+        self.editor.refresh_selection_ui()
 
     def insert_color(self, mode, target_index):
         if len(self.editor.palette_colors) >= 128:
@@ -86,7 +179,9 @@ class ColorBox(QtW.QFrame):
         index = target_index if mode == "before" else target_index + 1
         self.editor.palette_colors.insert(index, QColor(0, 0, 0))
         self.editor.rebuild_grid()
-        self.editor.select_color(index, self.editor.palette_colors[index])
+        self.editor.selected_indices = [index]
+        self.editor.active_index = index
+        self.editor.refresh_selection_ui()
 
     def clear_color(self, index):
         black = QColor(0, 0, 0)
@@ -107,7 +202,9 @@ class ColorBox(QtW.QFrame):
         self.editor.rebuild_grid()
 
         new_index = min(index, len(self.editor.palette_colors) - 1)
-        self.editor.select_color(new_index, self.editor.palette_colors[new_index])
+        self.editor.selected_indices = [new_index]
+        self.editor.active_index = new_index
+        self.editor.refresh_selection_ui()
 
 class PaletteEditor(QtW.QWidget):
     def __init__(self):
