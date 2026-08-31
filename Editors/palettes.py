@@ -98,24 +98,13 @@ class ColorBox(QtW.QFrame):
 
         # Sort colors to keep them in visual order when pasting
         sorted_indices = sorted(self.editor.selected_indices)
-        self.editor.clipboard_colors = [QColor(self.editor.palette_colors[i]) for i in sorted_indices]
+        self.editor.clipboard_colors = [QColor(self.editor.palette_colors[idx]) for idx in sorted_indices]
 
         # If only Copying, stop here. Otherwise, remove copied colors
         if cut:
             # Delete in reverse order to avoid issues with index shifting
             sorted_indices.reverse()
-            for i in sorted_indices:
-                if len(self.editor.palette_colors) > 1:
-                    self.editor.palette_colors.pop(i)
-
-            # Rebuild starting from the lowest deleted index
-            self.editor.rebuild_grid(sorted_indices[-1])
-
-            # Adjust selection index (Parameter is always passed, but its only use it here)
-            new_index = min(target_index, len(self.editor.palette_colors) - 1)
-            self.editor.selected_indices = [new_index]
-            self.editor.active_index = new_index
-            self.editor.refresh_selection_ui()
+            self.editor.remove_colors(sorted_indices)
 
     def paste_colors(self, mode, target_index):
         if not self.editor.clipboard_colors:
@@ -184,6 +173,9 @@ class ColorBox(QtW.QFrame):
         self.editor.refresh_selection_ui()
 
     def clear_color(self, index):
+        if not self.editor.selected_indices:
+            return
+
         black = QColor(0, 0, 0)
         for idx in self.editor.selected_indices:
             self.editor.palette_colors[idx] = black
@@ -192,19 +184,13 @@ class ColorBox(QtW.QFrame):
         self.editor.update_preview_box(black)
 
     def delete_color(self, index):
-        if len(self.editor.palette_colors) <= 1:
-            QtW.QMessageBox.warning(
-                self, "Palette Size Restriction", "Palette must have at least 1 color."
-            )
+        if not self.editor.selected_indices:
             return
 
-        self.editor.palette_colors.pop(index)
-        self.editor.rebuild_grid(index)
+        # Delete in reverse order to avoid issues with index shifting
+        sorted_indices = sorted(self.editor.selected_indices, reverse=True)
+        self.editor.remove_colors(sorted_indices)
 
-        new_index = min(index, len(self.editor.palette_colors) - 1)
-        self.editor.selected_indices = [new_index]
-        self.editor.active_index = new_index
-        self.editor.refresh_selection_ui()
 
 class PaletteEditor(QtW.QWidget):
     def __init__(self):
@@ -760,6 +746,33 @@ class PaletteEditor(QtW.QWidget):
 
         self.refresh_selection_ui()
 
+    def remove_colors(self, indices):
+        lowest = indices[-1]     # for rebuild_grid
+        clear_last = False
+
+        # Delete colors unless we are at the final color
+        for idx in indices:
+            if len(self.palette_colors) <= 1:
+                QtW.QMessageBox.warning(
+                    self, "Palette Size Restriction", "Palette must have at least 1 color."
+                )
+                clear_last = True
+                break
+            self.palette_colors.pop(idx)
+
+        # If all colors were deleted, leave behind a single black color
+        if clear_last:
+            self.palette_colors = [QColor(0, 0, 0)]
+
+        # Rebuild starting from the lowest (earliest) index
+        rebuild_start = 0 if clear_last else lowest
+        self.rebuild_grid(rebuild_start)
+
+        # Adjust selection index
+        self.selected_indices = [rebuild_start]
+        self.active_index = rebuild_start
+        self.refresh_selection_ui()
+
     def refresh_selection_ui(self):
         # Update active selection highlighting for all boxes
         for idx, box in enumerate(self.boxes):
@@ -834,7 +847,6 @@ class PaletteEditor(QtW.QWidget):
                 MDCOLOR_VALUES[_b]
             )
 
-            # To-Do: Decide whether to apply to all colors or only active color (like below)
             self.apply_color_change(snapped_color)
             self.refresh_selection_ui()
 
