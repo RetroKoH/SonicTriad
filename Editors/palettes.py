@@ -158,6 +158,8 @@ class ColorBox(QtW.QFrame):
         self.editor.selected_indices = list(range(start, end))
         self.editor.refresh_selection_ui()
 
+        self.unsaved_changes = True
+
     def insert_color(self, mode, target_index):
         if len(self.editor.palette_colors) >= 128:
             QtW.QMessageBox.warning(
@@ -172,6 +174,8 @@ class ColorBox(QtW.QFrame):
         self.editor.active_index = index
         self.editor.refresh_selection_ui()
 
+        self.unsaved_changes = True
+
     def clear_color(self, index):
         if not self.editor.selected_indices:
             return
@@ -182,6 +186,8 @@ class ColorBox(QtW.QFrame):
             self.editor.boxes[idx].set_color(black)
 
         self.editor.update_preview_box(black)
+
+        self.unsaved_changes = True
 
     def delete_color(self, index):
         if not self.editor.selected_indices:
@@ -206,21 +212,24 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.project_palette_paths = []
 
+        self._unsaved_changes = False
+        self._current_dropdown_index = -1
+
         self.init_ui()
 
     def init_ui(self):
-        main_layout = QtW.QHBoxLayout(self)
+        self.main_layout = QtW.QHBoxLayout(self)
 
         # -----------------------------
         # LEFT PANEL: Dynamic Color Grid
         # -----------------------------
-        color_box = QtW.QGroupBox(
+        self.color_box = QtW.QGroupBox(
             "Palette Grid (Left Click: Select;"+
             "    Left+Shift: Mass Select;"+
             "    Left+Ctrl: Toggle Selection;"+
             "    Right Click: Context Menu)"
         )
-        color_layout = QtW.QVBoxLayout(color_box)
+        self.color_layout = QtW.QVBoxLayout(self.color_box)
 
         # Scroll area in case palette grid extends past the window border
         scroll_area = QtW.QScrollArea()
@@ -232,23 +241,23 @@ class PaletteEditor(QtW.QWidget):
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         scroll_area.setWidget(scroll_content)
-        color_layout.addWidget(scroll_area)
+        self.color_layout.addWidget(scroll_area)
 
-        main_layout.addWidget(color_box, stretch=2)
+        self.main_layout.addWidget(self.color_box, stretch=2)
 
         # -----------------------------
         # RIGHT PANEL: Editing Controls
         # -----------------------------
-        editor_panel = QtW.QVBoxLayout()
+        self.editor_panel = QtW.QVBoxLayout()
 
         # Palette File Dropdown
-        pal_select_group = QtW.QGroupBox("Select Palette")
-        pal_select_layout = QtW.QVBoxLayout(pal_select_group)
+        self.pal_select_group = QtW.QGroupBox("Select Palette")
+        self.pal_select_layout = QtW.QVBoxLayout(self.pal_select_group)
 
         self.pal_dropdown = QtW.QComboBox()
         self.pal_dropdown.setToolTip("Select a palette file from the active project")
         self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
-        pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
+        self.pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
 
         # File Buttons
         btn_grid = QtW.QGridLayout()
@@ -260,8 +269,8 @@ class PaletteEditor(QtW.QWidget):
         for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas, self.btn_remove):
             btn.setFixedWidth(55)
 
-        self.btn_new.clicked.connect(self.file_palette_new)
-        self.btn_load.clicked.connect(self.file_palette_load)
+        self.btn_new.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_new))
+        self.btn_load.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_load))
         self.btn_save.clicked.connect(self.file_palette_save)
         self.btn_saveas.clicked.connect(self.file_palette_save_as)
         self.btn_remove.clicked.connect(self.file_palette_remove)
@@ -272,12 +281,12 @@ class PaletteEditor(QtW.QWidget):
         btn_grid.addWidget(self.btn_saveas, 0, 3)
         btn_grid.addWidget(self.btn_remove, 0, 4)
 
-        pal_select_layout.addLayout(btn_grid)
-        editor_panel.addWidget(pal_select_group)
+        self.pal_select_layout.addLayout(btn_grid)
+        self.editor_panel.addWidget(self.pal_select_group)
 
         # Color Entry Edit Buttons
-        pal_edit_group = QtW.QGroupBox("Palette Editing")
-        pal_edit_layout = QtW.QVBoxLayout(pal_edit_group)
+        self.pal_edit_group = QtW.QGroupBox("Palette Editing")
+        self.pal_edit_layout = QtW.QVBoxLayout(self.pal_edit_group)
 
         # Edit Buttons (Features to be considered: Undo, Redo, Resize (Add/Remove), Shift)
         btn_grid_edit = QtW.QGridLayout()
@@ -293,20 +302,20 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_edit.addWidget(self.btn_redo, 0, 1)
         btn_grid_edit.addWidget(self.btn_resize, 0, 2)
 
-        pal_edit_layout.addLayout(btn_grid_edit)
-        editor_panel.addWidget(pal_edit_group)
+        self.pal_edit_layout.addLayout(btn_grid_edit)
+        self.editor_panel.addWidget(self.pal_edit_group)
 
         # Color Editing Tool
-        control_group = QtW.QGroupBox("Color Editing")
-        control_layout = QtW.QVBoxLayout(control_group)
+        self.control_group = QtW.QGroupBox("Color Editing")
+        self.control_layout = QtW.QVBoxLayout(self.control_group)
 
         # Selected Index Label
         self.index_label = QtW.QLabel("Selected Color: #0")
         self.index_label.setObjectName("infoLabel")
-        control_layout.addWidget(self.index_label)
+        self.control_layout.addWidget(self.index_label)
 
         # Hex Preview & Large Color Box
-        preview_layout = QtW.QHBoxLayout()
+        self.preview_layout = QtW.QHBoxLayout()
         self.large_preview = QtW.QFrame()
         self.large_preview.setFixedSize(60, 60)
 
@@ -314,11 +323,11 @@ class PaletteEditor(QtW.QWidget):
         self.hex_input.setMaxLength(7)
         self.hex_input.editingFinished.connect(self.on_hex_edited)
 
-        preview_layout.addWidget(self.large_preview)
-        preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
-        control_layout.addLayout(preview_layout)
+        self.preview_layout.addWidget(self.large_preview)
+        self.preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
+        self.control_layout.addLayout(self.preview_layout)
 
-        control_layout.addSpacing(15)
+        self.control_layout.addSpacing(15)
 
         self.r_slider = self.create_step_slider(self.on_slider_changed)
         self.g_slider = self.create_step_slider(self.on_slider_changed)
@@ -328,16 +337,16 @@ class PaletteEditor(QtW.QWidget):
         self.g_val_label = QtW.QLabel("0")
         self.b_val_label = QtW.QLabel("0")
 
-        control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
-        control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
-        control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
+        self.control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
+        self.control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
+        self.control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
-        #control_layout.addStretch()
-        editor_panel.addWidget(control_group, stretch=1)
+        self.control_layout.addStretch()
+        self.editor_panel.addWidget(self.control_group, stretch=1)
 
         # Advanced Editing Functions
-        advanced_group = QtW.QGroupBox("Advanced Functions")
-        advanced_layout = QtW.QVBoxLayout(advanced_group)
+        self.advanced_group = QtW.QGroupBox("Advanced Functions")
+        self.advanced_layout = QtW.QVBoxLayout(self.advanced_group)
 
         # Advanced Option Buttons
         btn_grid_adv = QtW.QGridLayout()
@@ -351,10 +360,10 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_adv.addWidget(self.btn_invert, 2, 0)
         btn_grid_adv.addWidget(self.btn_gradient, 3, 0)
 
-        advanced_layout.addLayout(btn_grid_adv)
-        editor_panel.addWidget(advanced_group)
+        self.advanced_layout.addLayout(btn_grid_adv)
+        self.editor_panel.addWidget(self.advanced_group)
 
-        main_layout.addLayout(editor_panel, stretch=1)
+        self.main_layout.addLayout(self.editor_panel, stretch=1)
 
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
@@ -585,8 +594,9 @@ class PaletteEditor(QtW.QWidget):
 
             self.refresh_selection_ui()
 
+            self.unsaved_changes = True
+
     def write_palette_to_disk(self, path: Path):
-        """Encodes current QColor palette into Mega Drive format (0000 BBB0 GGG0 RRR0)."""
         binary_data = bytearray()
         for color in self.palette_colors:
             _r = self.snap_to_md_colors(color.red())
@@ -601,6 +611,7 @@ class PaletteEditor(QtW.QWidget):
         try:
             with open(path, "wb") as f:
                 f.write(binary_data)
+            self.unsaved_changes = False    # clear flag on save
         except Exception as e:
             QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
 
@@ -653,12 +664,26 @@ class PaletteEditor(QtW.QWidget):
             self.pal_dropdown.setCurrentIndex(0)
 
     def on_pal_dropdown_changed(self, index: int):
-        path = self.pal_dropdown.itemData(index)
-        if path and isinstance(path, Path):
-            self.load_palette_data(path)
+        # Ignore if only reverting/resetting UI
+        if index == self._current_dropdown_index or index == -1:
+            return
+
+        def load_new_selection():
+            # Load selected palette
+            self._current_dropdown_index = index
+            path = self.pal_dropdown.itemData(index)
+            if path and isinstance(path, Path):
+                self.load_palette_data(path)
+
+        def revert_selection():
+            # Silently revert dropdown, don't replace palette
+            self.pal_dropdown.blockSignals(True)
+            self.pal_dropdown.setCurrentIndex(self._current_dropdown_index)
+            self.pal_dropdown.blockSignals(False)
+
+        self.check_unsaved_changes(load_new_selection, revert_selection)
 
     def load_palette_data(self, path: Path):
-        """Reads binary palette data"""
         self.active_palette_path = path
         if not path.exists():
             return
@@ -690,6 +715,7 @@ class PaletteEditor(QtW.QWidget):
 
         if loaded_colors:
             self.set_palette_data(loaded_colors)
+            self.unsaved_changes = False  # clear flag on load
 
     def rebuild_grid(self, index = 0):
         # Use index to tell Triad how much to rebuild (avoid unnecessary work)
@@ -722,7 +748,6 @@ class PaletteEditor(QtW.QWidget):
         self.refresh_selection_ui()
 
     def select_colors(self, index: int, modifiers):
-        """Processes standard click, Ctrl+click, and Shift+click selections."""
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             # CTRL+CLICK: Toggle selection
             if index in self.selected_indices:
@@ -777,6 +802,8 @@ class PaletteEditor(QtW.QWidget):
         self.selected_indices = [rebuild_start]
         self.active_index = rebuild_start
         self.refresh_selection_ui()
+
+        self.unsaved_changes = True
 
     def refresh_selection_ui(self):
         # Update active selection highlighting for all boxes
@@ -838,6 +865,8 @@ class PaletteEditor(QtW.QWidget):
 
         self.apply_color_change(new_color)
 
+        self.unsaved_changes = True
+
     def on_hex_edited(self):
         hex_text = self.hex_input.text()
         color = QColor(hex_text)
@@ -855,6 +884,8 @@ class PaletteEditor(QtW.QWidget):
             self.apply_color_change(snapped_color)
             self.refresh_selection_ui()
 
+            self.unsaved_changes = True
+
     def apply_color_change(self, color):
         self.palette_colors[self.active_index] = color
         self.boxes[self.active_index].set_color(color)
@@ -868,6 +899,61 @@ class PaletteEditor(QtW.QWidget):
                 border-radius: 6px;
             }}
         """)
+
+    @property
+    def unsaved_changes(self):
+        return self._unsaved_changes
+
+    @unsaved_changes.setter
+    def unsaved_changes(self, value=True):
+        self._unsaved_changes = value
+        if value:
+            self.pal_select_group.setTitle("Select Palette (Unsaved Changes)")
+        else:
+            self.pal_select_group.setTitle("Select Palette")
+
+    def show_save_prompt_dialog(self):
+        prompt = QtW.QMessageBox(self)
+        prompt.setWindowTitle("Unsaved Changes")
+        prompt.setText("You have unsaved changes in the current palette. What would you like to do?")
+
+        btn_save = prompt.addButton("Save", QtW.QMessageBox.ButtonRole.AcceptRole)
+        btn_save_as = prompt.addButton("Save As...", QtW.QMessageBox.ButtonRole.AcceptRole)
+        btn_dont_save = prompt.addButton("Don't Save", QtW.QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = prompt.addButton("Cancel", QtW.QMessageBox.ButtonRole.RejectRole)
+
+        prompt.exec()
+
+        clicked_btn = prompt.clickedButton()
+        if clicked_btn == btn_save:
+            return "Save"
+        elif clicked_btn == btn_save_as:
+            return "Save As"
+        elif clicked_btn == btn_dont_save:
+            return "Don't Save"
+        else:
+            return "Cancel"
+
+    def check_unsaved_changes(self, pending_action_callback, cancel_callback=None):
+        if not self.unsaved_changes:
+            pending_action_callback()
+            return
+
+        user_choice = self.show_save_prompt_dialog()
+
+        if user_choice == "Save":
+            self.file_palette_save()
+            pending_action_callback()
+        elif user_choice == "Save As":
+            self.file_palette_save_as()
+            pending_action_callback()
+        elif user_choice == "Don't Save":
+            pending_action_callback()
+        elif user_choice == "Cancel":
+            # Revert UI state if needed
+            if cancel_callback:
+                cancel_callback()
+            return
 
     @staticmethod
     def snap_to_md_colors(val):
