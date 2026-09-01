@@ -234,8 +234,8 @@ class AdvancedEditDialog(QtW.QDialog):
         scope_group = QtW.QGroupBox("Target Scope")
         scope_layout = QtW.QVBoxLayout(scope_group)
 
-        self.opt_selected = QtW.QRadioButton("Selected Colors Only")
         self.opt_all = QtW.QRadioButton("Entire Palette")
+        self.opt_selected = QtW.QRadioButton("Selected Colors Only")
 
         # Default scope selection based on active selection count
         if len(self.editor.selected_indices) > 1:
@@ -243,11 +243,11 @@ class AdvancedEditDialog(QtW.QDialog):
         else:
             self.opt_all.setChecked(True)
 
-        self.opt_selected.toggled.connect(self.update_preview)
         self.opt_all.toggled.connect(self.update_preview)
+        self.opt_selected.toggled.connect(self.update_preview)
 
-        scope_layout.addWidget(self.opt_selected)
         scope_layout.addWidget(self.opt_all)
+        scope_layout.addWidget(self.opt_selected)
         options_layout.addWidget(scope_group)
 
         # Hook for Subclass-specific UI
@@ -471,9 +471,8 @@ class PaletteEditor(QtW.QWidget):
 
         self.init_ui()
 
-        # Advanced Editing window handlers (Might consolidate later)
-        self.greyscale_dialog = None
-        self.invert_dialog = None
+        # Advanced Editing window handler
+        self.active_advanced_dialog = None
 
     def init_ui(self):
         self.main_layout = QtW.QHBoxLayout(self)
@@ -861,27 +860,31 @@ class PaletteEditor(QtW.QWidget):
 
     def adv_greyscale_colors(self):
         # If this window is already open, bring it to focus instead of opening a duplicate
-        if self.greyscale_dialog is not None and self.greyscale_dialog.isVisible():
-            self.greyscale_dialog.raise_()
-            self.greyscale_dialog.activateWindow()
+        if self.check_active_dialog():
             return
 
         # Opens new window for effect preview
-        self.greyscale_dialog = GreyscaleDialog(self)
-        self.greyscale_dialog.colors_applied.connect(self.apply_color_effect)
-        self.greyscale_dialog.show()
+        self.active_advanced_dialog = GreyscaleDialog(self)
+        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
+        self.active_advanced_dialog.show()
 
     def adv_invert_colors(self):
         # If this window is already open, bring it to focus instead of opening a duplicate
-        if self.invert_dialog is not None and self.invert_dialog.isVisible():
-            self.invert_dialog.raise_()
-            self.invert_dialog.activateWindow()
+        if self.check_active_dialog():
             return
 
         # Opens new window for effect preview
-        self.invert_dialog = InvertColorsDialog(self)
-        self.invert_dialog.colors_applied.connect(self.apply_color_effect)
-        self.invert_dialog.show()
+        self.active_advanced_dialog = InvertColorsDialog(self)
+        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
+        self.active_advanced_dialog.show()
+
+    def check_active_dialog(self):
+        # If an advanced dialog is open, bring it to focus
+        if self.active_advanced_dialog is not None and self.active_advanced_dialog.isVisible():
+            self.active_advanced_dialog.raise_()
+            self.active_advanced_dialog.activateWindow()
+            return True
+        return False
 
     def apply_color_effect(self, new_colors):
         # Effect is only applied if the user selects "Apply"
