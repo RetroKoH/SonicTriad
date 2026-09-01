@@ -198,19 +198,14 @@ class ColorBox(QtW.QFrame):
         self.editor.remove_colors(sorted_indices)
 
 
-""" The following classes are sub-windows for the Advanced Editing options
-    They contain their own functions that edit facets of the main editor.
-    
-    If possible, I might condense these to one Dialog class later on.
-"""
-class GreyscaleDialog(QtW.QDialog):
+class AdvancedEditDialog(QtW.QDialog):
     # Signal to apply changes to the palette's colors
     colors_applied = pyqtSignal(list)
 
-    def __init__(self, editor):
+    def __init__(self, editor, title="Advanced Editing"):
         super().__init__(editor)
         self.editor = editor
-        self.setWindowTitle("Apply Greyscale")
+        self.setWindowTitle(title)
         self.setMinimumSize(680, 260)
 
         # Temp palette structures
@@ -231,7 +226,7 @@ class GreyscaleDialog(QtW.QDialog):
         content_layout = QtW.QHBoxLayout()
 
         # -----------------------------
-        # LEFT PANEL: Greyscale Options
+        # LEFT PANEL: Options
         # -----------------------------
         options_layout = QtW.QVBoxLayout()
 
@@ -255,7 +250,118 @@ class GreyscaleDialog(QtW.QDialog):
         scope_layout.addWidget(self.opt_all)
         options_layout.addWidget(scope_group)
 
-        # Greyscale Method Options
+        # Hook for Subclass-specific UI
+        self.setup_custom_options(options_layout)
+
+        options_layout.addStretch()
+        content_layout.addLayout(options_layout, stretch=1)
+
+        # -----------------------------
+        # RIGHT PANEL: Palette Preview
+        # -----------------------------
+        preview_group = QtW.QGroupBox("Preview")
+        preview_group_layout = QtW.QVBoxLayout(preview_group)
+
+        scroll_area = QtW.QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QtW.QWidget()
+
+        self.grid_layout = QtW.QGridLayout(scroll_content)
+        self.grid_layout.setSpacing(4)
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        scroll_area.setWidget(scroll_content)
+        preview_group_layout.addWidget(scroll_area)
+        content_layout.addWidget(preview_group, stretch=2)
+
+        main_layout.addLayout(content_layout)
+
+        # -----------------------------
+        # BOTTOM PANEL: Action Buttons
+        # -----------------------------
+        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        btn_box = QtW.QDialogButtonBox(buttons)
+
+        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
+        btn_apply.setText("Apply")
+
+        btn_apply.clicked.connect(self.on_apply)
+        btn_box.rejected.connect(self.reject)
+        main_layout.addWidget(btn_box)
+
+    def on_apply(self):
+        self.colors_applied.emit(self.result_colors)
+        self.accept()
+
+    def update_preview(self):
+        only_selected = self.opt_selected.isChecked()
+
+        for idx, original_color in enumerate(self.original_colors):
+            # Check if color should be modified based on scope selection
+            if only_selected and idx not in self.editor.selected_indices:
+                self.result_colors[idx] = QColor(original_color)
+            else:
+                # Call the subclass-specific transformation
+                self.result_colors[idx] = self.transform_color(original_color)
+
+            # Update preview box color
+            if idx < len(self.preview_boxes):
+                self.preview_boxes[idx].setStyleSheet(
+                    f"background-color: {self.result_colors[idx].name()}; border: 1px solid #444;"
+                )
+
+    def reload_from_editor(self):
+        # Get updated colors and selections from the main window
+        self.original_colors = [QColor(c) for c in self.editor.palette_colors]
+
+        # Rebuild preview boxes if palette size changed
+        if len(self.original_colors) != len(self.preview_boxes):
+            self.rebuild_preview_grid()
+
+        # Reset result array length to match original
+        self.result_colors = [QColor(c) for c in self.original_colors]
+        self.update_preview()
+
+    def rebuild_preview_grid(self):
+        # Rebuild preview grid when palette size changes
+        for box in self.preview_boxes:
+            box.deleteLater()
+        self.preview_boxes.clear()
+
+        MAX_COLUMNS = 16
+        for idx, color in enumerate(self.original_colors):
+            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+            box = QtW.QFrame()
+            box.setFixedSize(20, 20)
+            self.grid_layout.addWidget(box, row, col)
+            self.preview_boxes.append(box)
+
+    def changeEvent(self, a0):
+        # Sync with main window whenever this window gains focus
+        if a0.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self.reload_from_editor()
+        super().changeEvent(a0)
+
+    # --- Overridden by dialog subclasses ---
+    def setup_custom_options(self, layout):
+        pass
+
+    # --- Overridden by dialog subclasses ---
+    def transform_color(self, original_color: QColor) -> QColor:
+        return QColor(original_color)
+
+
+""" The following classes are subtypes for the AdvancedEditDialog class.
+    They contain their own functions that edit facets of the main editor.
+"""
+class GreyscaleDialog(AdvancedEditDialog):
+    def __init__(self, editor):
+        super().__init__(editor, title="Apply Greyscale")
+
+    def setup_custom_options(self, layout):
+        # -----------------------------
+        # LEFT PANEL MOD: Greyscale Options
+        # -----------------------------
         method_group = QtW.QGroupBox("Greyscale Method")
         method_layout = QtW.QVBoxLayout(method_group)
 
@@ -273,163 +379,39 @@ class GreyscaleDialog(QtW.QDialog):
             rad.toggled.connect(self.update_preview)
             method_layout.addWidget(rad)
 
-        options_layout.addWidget(method_group)
-        options_layout.addStretch()
-        content_layout.addLayout(options_layout, stretch=1)
+        layout.addWidget(method_group)
+        #layout.addStretch()
+        #content_layout.addLayout(layout, stretch=1)
 
-        # -----------------------------
-        # RIGHT PANEL: Palette Preview
-        # -----------------------------
-        preview_group = QtW.QGroupBox("Preview")
-        preview_group_layout = QtW.QVBoxLayout(preview_group)
+    def transform_color(self, original_color):
+        _r, _g, _b = original_color.red(), original_color.green(), original_color.blue()
 
-        scroll_area = QtW.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_content = QtW.QWidget()
+        # Calculate grey color value based on selected greyscale method
+        if self.gs_luminosity.isChecked():
+            grey_val = int(0.299 * _r + 0.587 * _g + 0.114 * _b)
+        elif self.gs_lightness.isChecked():
+            grey_val = int((max(_r, _g, _b) + min(_r, _g, _b)) / 2)
+        else:  # Average
+            grey_val = int((_r + _g + _b) / 3)
 
-        self.grid_layout = QtW.QGridLayout(scroll_content)
-        self.grid_layout.setSpacing(4)
-        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # Snap calculated grey to Mega Drive color limits
+        step = PaletteEditor.snap_to_md_colors(grey_val)
+        md_grey = MDCOLOR_VALUES[step]
 
-        scroll_area.setWidget(scroll_content)
-        preview_group_layout.addWidget(scroll_area)
-        content_layout.addWidget(preview_group, stretch=2)
-
-        main_layout.addLayout(content_layout)
-
-        # -----------------------------
-        # BOTTOM PANEL: Action Buttons
-        # -----------------------------
-        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
-        btn_box = QtW.QDialogButtonBox(buttons)
-
-        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
-        btn_apply.setText("Apply")
-
-        btn_apply.clicked.connect(self.on_apply)
-        btn_box.rejected.connect(self.reject)
-        main_layout.addWidget(btn_box)
-
-    def on_apply(self):
-        self.colors_applied.emit(self.result_colors)
-        self.accept()
-
-    def update_preview(self):
-        only_selected = self.opt_selected.isChecked()
-
-        for idx, original_color in enumerate(self.original_colors):
-            # Check if color should be inverted based on scope selection
-            if only_selected and idx not in self.editor.selected_indices:
-                self.result_colors[idx] = QColor(original_color)
-            else:
-                _r, _g, _b = original_color.red(), original_color.green(), original_color.blue()
-
-                # Calculate grey color value based on selected greyscale method
-                if self.gs_luminosity.isChecked():
-                    grey_val = int(0.299 * _r + 0.587 * _g + 0.114 * _b)
-                elif self.gs_lightness.isChecked():
-                    grey_val = int((max(_r, _g, _b) + min(_r, _g, _b)) / 2)
-                else:  # Average
-                    grey_val = int((_r + _g + _b) / 3)
-
-                # Snap calculated grey to Mega Drive color limits
-                step = self.editor.snap_to_md_colors(grey_val)
-                md_grey = MDCOLOR_VALUES[step]
-
-                self.result_colors[idx] = QColor(md_grey, md_grey, md_grey)
-
-            # Update preview box color
-            if idx < len(self.preview_boxes):
-                self.preview_boxes[idx].setStyleSheet(
-                    f"background-color: {self.result_colors[idx].name()}; border: 1px solid #444;"
-                )
-
-    def reload_from_editor(self):
-        # Get updated colors and selections from the main window
-        self.original_colors = [QColor(c) for c in self.editor.palette_colors]
-
-        # Rebuild preview boxes if palette size changed
-        if len(self.original_colors) != len(self.preview_boxes):
-            self.rebuild_preview_grid()
-
-        # Reset result array length to match original
-        self.result_colors = [QColor(c) for c in self.original_colors]
-        self.update_preview()
-
-    def rebuild_preview_grid(self):
-        # Rebuild preview grid when palette size changes
-        for box in self.preview_boxes:
-            box.deleteLater()
-        self.preview_boxes.clear()
-
-        MAX_COLUMNS = 16
-        for idx, color in enumerate(self.original_colors):
-            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
-            box = QtW.QFrame()
-            box.setFixedSize(20, 20)
-            self.grid_layout.addWidget(box, row, col)
-            self.preview_boxes.append(box)
-
-    def changeEvent(self, a0):
-        # Sync with main window whenever this window gains focus
-        if a0.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
-            self.reload_from_editor()
-        super().changeEvent(a0)
+        return QColor(md_grey, md_grey, md_grey)
 
 
-class InvertColorsDialog(QtW.QDialog):
+class InvertColorsDialog(AdvancedEditDialog):
     # Signal to apply changes to the palette's colors
     colors_applied = pyqtSignal(list)
 
     def __init__(self, editor):
-        super().__init__(editor)
-        self.editor = editor
-        self.setWindowTitle("Invert Colors")
-        self.setMinimumSize(680, 260)
+        super().__init__(editor, title="Invert Colors")
 
-        # Temp palette structures
-        self.original_colors = []
-        self.result_colors = []
-        self.preview_boxes = []
-
-        # Setup this window
-        self.init_ui()
-        self.reload_from_editor()
-
-        # Connect signals for live background updating
-        self.editor.selection_changed.connect(self.reload_from_editor)
-        self.editor.palette_changed.connect(self.reload_from_editor)
-
-    def init_ui(self):
-        main_layout = QtW.QVBoxLayout(self)
-        content_layout = QtW.QHBoxLayout()
-
+    def setup_custom_options(self, layout):
         # -----------------------------
-        # LEFT PANEL: Inversion Options
+        # LEFT PANEL MOD: Inversion Options
         # -----------------------------
-        options_layout = QtW.QVBoxLayout()
-
-        # Target Scope Option
-        scope_group = QtW.QGroupBox("Target Scope")
-        scope_layout = QtW.QVBoxLayout(scope_group)
-
-        self.opt_selected = QtW.QRadioButton("Selected Colors Only")
-        self.opt_all = QtW.QRadioButton("Entire Palette")
-
-        # Default scope selection based on active selection count
-        if len(self.editor.selected_indices) > 1:
-            self.opt_selected.setChecked(True)
-        else:
-            self.opt_all.setChecked(True)
-
-        self.opt_selected.toggled.connect(self.update_preview)
-        self.opt_all.toggled.connect(self.update_preview)
-
-        scope_layout.addWidget(self.opt_selected)
-        scope_layout.addWidget(self.opt_all)
-        options_layout.addWidget(scope_group)
-
-        # Channel Inversion Toggles
         channel_group = QtW.QGroupBox("Invert Channels")
         channel_layout = QtW.QVBoxLayout(channel_group)
 
@@ -444,107 +426,26 @@ class InvertColorsDialog(QtW.QDialog):
             chk.toggled.connect(self.update_preview)
             channel_layout.addWidget(chk)
 
-        options_layout.addWidget(channel_group)
-        options_layout.addStretch()
-        content_layout.addLayout(options_layout, stretch=1)
+        layout.addWidget(channel_group)
+        #layout.addStretch()
+        #content_layout.addLayout(layout, stretch=1)
 
-        # -----------------------------
-        # RIGHT PANEL: Palette Preview
-        # -----------------------------
-        preview_group = QtW.QGroupBox("Preview")
-        preview_group_layout = QtW.QVBoxLayout(preview_group)
-
-        scroll_area = QtW.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_content = QtW.QWidget()
-
-        self.grid_layout = QtW.QGridLayout(scroll_content)
-        self.grid_layout.setSpacing(4)
-        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-
-        scroll_area.setWidget(scroll_content)
-        preview_group_layout.addWidget(scroll_area)
-        content_layout.addWidget(preview_group, stretch=2)
-
-        main_layout.addLayout(content_layout)
-
-        # -----------------------------
-        # BOTTOM PANEL: Action Buttons
-        # -----------------------------
-        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
-        btn_box = QtW.QDialogButtonBox(buttons)
-
-        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
-        btn_apply.setText("Apply")
-
-        btn_apply.clicked.connect(self.on_apply)
-        btn_box.rejected.connect(self.reject)
-        main_layout.addWidget(btn_box)
-
-    def on_apply(self):
-        self.colors_applied.emit(self.result_colors)
-        self.accept()
-
-    def update_preview(self):
+    def transform_color(self, original_color):
         invert_r = self.chk_red.isChecked()
         invert_g = self.chk_green.isChecked()
         invert_b = self.chk_blue.isChecked()
-        only_selected = self.opt_selected.isChecked()
 
-        for idx, original_color in enumerate(self.original_colors):
-            # Check if color should be inverted based on scope selection
-            if only_selected and idx not in self.editor.selected_indices:
-                self.result_colors[idx] = QColor(original_color)
-            else:
-                # Snap current RGB channels to 3-bit Genesis steps (0 to 7)
-                r_step = PaletteEditor.snap_to_md_colors(original_color.red())
-                g_step = PaletteEditor.snap_to_md_colors(original_color.green())
-                b_step = PaletteEditor.snap_to_md_colors(original_color.blue())
+        # Snap current RGB channels to 3-bit Genesis steps (0 to 7)
+        r_step = PaletteEditor.snap_to_md_colors(original_color.red())
+        g_step = PaletteEditor.snap_to_md_colors(original_color.green())
+        b_step = PaletteEditor.snap_to_md_colors(original_color.blue())
 
-                # Invert MD steps (7 - step) if channel checkbox is enabled
-                new_r = MDCOLOR_VALUES[7 - r_step] if invert_r else original_color.red()
-                new_g = MDCOLOR_VALUES[7 - g_step] if invert_g else original_color.green()
-                new_b = MDCOLOR_VALUES[7 - b_step] if invert_b else original_color.blue()
+        # Invert MD steps (7 - step) if channel checkbox is enabled
+        new_r = MDCOLOR_VALUES[7 - r_step] if invert_r else original_color.red()
+        new_g = MDCOLOR_VALUES[7 - g_step] if invert_g else original_color.green()
+        new_b = MDCOLOR_VALUES[7 - b_step] if invert_b else original_color.blue()
 
-                self.result_colors[idx] = QColor(new_r, new_g, new_b)
-
-            # Update preview box color
-            if idx < len(self.preview_boxes):
-                self.preview_boxes[idx].setStyleSheet(
-                    f"background-color: {self.result_colors[idx].name()}; border: 1px solid #444;"
-                )
-
-    def reload_from_editor(self):
-        # Get updated colors and selections from the main window
-        self.original_colors = [QColor(c) for c in self.editor.palette_colors]
-
-        # Rebuild preview boxes if palette size changed
-        if len(self.original_colors) != len(self.preview_boxes):
-            self.rebuild_preview_grid()
-
-        # Reset result array length to match original
-        self.result_colors = [QColor(c) for c in self.original_colors]
-        self.update_preview()
-
-    def rebuild_preview_grid(self):
-        # Rebuild preview grid when palette size changes
-        for box in self.preview_boxes:
-            box.deleteLater()
-        self.preview_boxes.clear()
-
-        MAX_COLUMNS = 16
-        for idx, color in enumerate(self.original_colors):
-            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
-            box = QtW.QFrame()
-            box.setFixedSize(20, 20)
-            self.grid_layout.addWidget(box, row, col)
-            self.preview_boxes.append(box)
-
-    def changeEvent(self, a0):
-        # Sync with main window whenever this window gains focus
-        if a0.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
-            self.reload_from_editor()
-        super().changeEvent(a0)
+        return QColor(new_r, new_g, new_b)
 
 
 class PaletteEditor(QtW.QWidget):
