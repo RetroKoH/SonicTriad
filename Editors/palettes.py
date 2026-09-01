@@ -462,16 +462,6 @@ class InvertColorsDialog(QtW.QDialog):
         self.grid_layout.setSpacing(4)
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        # Create preview color swatches matching the current palette length
-        MAX_COLUMNS = 16
-        for idx, color in enumerate(self.original_colors):
-            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
-            box = QtW.QFrame()
-            box.setFixedSize(20, 20)
-            box.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #444;")
-            self.grid_layout.addWidget(box, row, col)
-            self.preview_boxes.append(box)
-
         scroll_area.setWidget(scroll_content)
         preview_group_layout.addWidget(scroll_area)
         content_layout.addWidget(preview_group, stretch=2)
