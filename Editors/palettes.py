@@ -664,6 +664,42 @@ class PaletteEditor(QtW.QWidget):
         self.control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
         self.control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
+        self.control_layout.addSpacing(15)
+
+        # Mass Color Editing
+        mass_edit_layout = QtW.QHBoxLayout()
+        self.opt_mass_all = QtW.QRadioButton("Full Palette")
+        self.opt_mass_selected = QtW.QRadioButton("Selected Color(s)")
+        self.opt_mass_all.setChecked(True)
+
+        mass_edit_layout.addWidget(self.opt_mass_all)
+        mass_edit_layout.addWidget(self.opt_mass_selected)
+        self.control_layout.addLayout(mass_edit_layout)
+
+        mass_shift_layout = QtW.QGridLayout()
+        self.btn_r_minus = QtW.QPushButton("- Red")
+        self.btn_r_plus = QtW.QPushButton("+ Red")
+        self.btn_g_minus = QtW.QPushButton("- Green")
+        self.btn_g_plus = QtW.QPushButton("+ Green")
+        self.btn_b_minus = QtW.QPushButton("- Blue")
+        self.btn_b_plus = QtW.QPushButton("+ Blue")
+
+        self.btn_r_minus.clicked.connect(lambda: self.mass_shift_color('r', -1))
+        self.btn_r_plus.clicked.connect(lambda: self.mass_shift_color('r', 1))
+        self.btn_g_minus.clicked.connect(lambda: self.mass_shift_color('g', -1))
+        self.btn_g_plus.clicked.connect(lambda: self.mass_shift_color('g', 1))
+        self.btn_b_minus.clicked.connect(lambda: self.mass_shift_color('b', -1))
+        self.btn_b_plus.clicked.connect(lambda: self.mass_shift_color('b', 1))
+
+        mass_shift_layout.addWidget(self.btn_r_minus, 0, 0)
+        mass_shift_layout.addWidget(self.btn_r_plus, 0, 1)
+        mass_shift_layout.addWidget(self.btn_g_minus, 1, 0)
+        mass_shift_layout.addWidget(self.btn_g_plus, 1, 1)
+        mass_shift_layout.addWidget(self.btn_b_minus, 2, 0)
+        mass_shift_layout.addWidget(self.btn_b_plus, 2, 1)
+
+        self.control_layout.addLayout(mass_shift_layout)
+
         self.control_layout.addStretch()
         self.editor_panel.addWidget(self.control_group, stretch=1)
 
@@ -924,6 +960,36 @@ class PaletteEditor(QtW.QWidget):
             self.refresh_selection_ui()
 
             self.unsaved_changes = True
+
+    def mass_shift_color(self, channel, direction):
+        # Determine target scope
+        if self.opt_mass_all.isChecked():
+            target_indices = range(len(self.palette_colors))
+        else:
+            target_indices = self.selected_indices
+
+        for _i in target_indices:
+            color = self.palette_colors[_i]
+            r_step = self.snap_to_md_colors(color.red())
+            g_step = self.snap_to_md_colors(color.green())
+            b_step = self.snap_to_md_colors(color.blue())
+
+            # Apply shift and clamp values
+            if channel == 'r':
+                r_step = max(0, min(7, r_step + direction))
+            elif channel == 'g':
+                g_step = max(0, min(7, g_step + direction))
+            elif channel == 'b':
+                b_step = max(0, min(7, b_step + direction))
+
+            new_color = QColor(MDCOLOR_VALUES[r_step], MDCOLOR_VALUES[g_step], MDCOLOR_VALUES[b_step])
+
+            # Update palette
+            self.palette_colors[_i] = new_color
+            self.boxes[_i].set_color(new_color)
+
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
 
     def adv_blend_colors(self):
         # If this window is already open, bring it to focus instead of opening a duplicate
