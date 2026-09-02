@@ -3,10 +3,10 @@ from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QPixmap, QFont
 
 # Improved MD Colors (Colors match the new color library)
-MDCOLOR_VALUES = [round(x * 0xFF / 7) for x in range(8)]
+MDCOLOR_VALUES = [x * 255 // 7 for x in range(8)]
 # Output: [0x00, 0x24, 0x48, 0x6D, 0x91, 0xB6, 0xDA, 0xFF]
 
 class ColorBox(QtW.QFrame):
@@ -197,6 +197,128 @@ class ColorBox(QtW.QFrame):
         # Delete in reverse order to avoid issues with index shifting
         sorted_indices = sorted(self.editor.selected_indices, reverse=True)
         self.editor.remove_colors(sorted_indices)
+
+
+class PreviewColorBox(QtW.QFrame):
+    clicked = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(60, 60)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+
+    def mousePressEvent(self, a0):
+        if a0.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(a0)
+
+
+class ColorLibraryMap(QtW.QLabel):
+    # Emits RGB step values
+    color_picked = pyqtSignal(int, int, int)
+
+    def __init__(self, image_path="Editors/color_library.png"):
+        super().__init__()
+        # Load and scale color library
+        pixmap = QPixmap(image_path)
+        self.scaled_pixmap = pixmap.scaled(
+            512, 64,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.FastTransformation
+        )
+        self.setPixmap(self.scaled_pixmap)
+        self.setFixedSize(512, 64)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            x = ev.pos().x()
+            y = ev.pos().y()
+            wid = self.width() / 64.0
+            hgt = self.height() / 8.0
+
+            # Determine column/row using cell size and click coords
+            col = int(x // wid)
+            row = int(y // hgt)
+            col = max(0, min(63, col))
+            row = max(0, min(7, row))
+
+            # Decode into 3-bit RGB steps based on the image's layout
+            r_step = col // 8
+            g_step = row
+            b_step = col % 8
+
+            self.color_picked.emit(r_step, g_step, b_step)
+
+
+class ColorLibraryDialog(QtW.QDialog):
+    def __init__(self, current_color, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Color Library")
+        self.setFixedSize(540, 160)
+        self.selected_color = current_color
+
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QtW.QVBoxLayout(self)
+
+        self.palette_map = ColorLibraryMap("Editors/color_library.png")
+        self.palette_map.color_picked.connect(self.on_color_picked)
+
+        # Center the color library
+        map_layout = QtW.QHBoxLayout()
+        map_layout.addStretch()
+        map_layout.addWidget(self.palette_map)
+        map_layout.addStretch()
+        layout.addLayout(map_layout)
+
+        # -----------------------------
+        # BOTTOM PANEL: Preview and Buttons
+        # -----------------------------
+        bottom_layout = QtW.QHBoxLayout()
+
+        self.preview_box = QtW.QFrame()
+        self.preview_box.setFixedSize(32, 32)
+        bottom_layout.addWidget(self.preview_box)
+
+        self.hex_label = QtW.QLabel()
+        self.hex_label.setFont(QFont("Monospace", 10, QFont.Weight.Bold))
+        bottom_layout.addWidget(self.hex_label)
+
+        self.update_preview(self.selected_color)
+
+        bottom_layout.addStretch()
+
+        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        btn_box = QtW.QDialogButtonBox(buttons)
+
+        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
+        btn_apply.setText("Apply")
+
+        btn_apply.clicked.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        bottom_layout.addWidget(btn_box)
+
+        layout.addLayout(bottom_layout)
+
+    def on_color_picked(self, r_step, g_step, b_step):
+        _r = MDCOLOR_VALUES[r_step]
+        _g = MDCOLOR_VALUES[g_step]
+        _b = MDCOLOR_VALUES[b_step]
+
+        self.selected_color = QColor(_r, _g, _b)
+        self.update_preview(self.selected_color)
+
+    def update_preview(self, color):
+        self.preview_box.setStyleSheet(
+            f"background-color: {color.name()}; border: 1px solid #444;"
+        )
+        self.hex_label.setText(color.name().upper())
+
+    def get_color(self):
+        return self.selected_color
 
 
 class AdvancedEditDialog(QtW.QDialog):
@@ -809,8 +931,8 @@ class PaletteEditor(QtW.QWidget):
 
         # Hex Preview & Large Color Box
         self.preview_layout = QtW.QHBoxLayout()
-        self.large_preview = QtW.QFrame()
-        self.large_preview.setFixedSize(60, 60)
+        self.large_preview = PreviewColorBox()
+        self.large_preview.clicked.connect(self.open_color_library)
 
         self.hex_input = QtW.QLineEdit("#000000")
         self.hex_input.setMaxLength(7)
@@ -1130,6 +1252,19 @@ class PaletteEditor(QtW.QWidget):
 
             self.refresh_selection_ui()
 
+            self.unsaved_changes = True
+
+    def open_color_library(self):
+        # Get active color from the main editor
+        active_color = self.palette_colors[self.active_index]
+
+        # Unlike the other mini-windows, this one runs modally
+        dialog = ColorLibraryDialog(active_color, self)
+        if dialog.exec():
+            # Apply picked color to active index
+            new_color = dialog.get_color()
+            self.apply_color_change(new_color)
+            self.refresh_selection_ui()
             self.unsaved_changes = True
 
     def mass_shift_color(self, channel, direction):
