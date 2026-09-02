@@ -354,6 +354,72 @@ class AdvancedEditDialog(QtW.QDialog):
 """ The following classes are subtypes for the AdvancedEditDialog class.
     They contain their own functions that edit facets of the main editor.
 """
+class ColorBlendDialog(AdvancedEditDialog):
+    def __init__(self, editor):
+        super().__init__(editor, title="Bland Colors")
+
+    def setup_custom_options(self, layout):
+        # -----------------------------
+        # LEFT PANEL MOD: Color Blend Options
+        # -----------------------------
+        blend_group = QtW.QGroupBox("Blend Options")
+        blend_layout = QtW.QVBoxLayout(blend_group)
+
+        # Color Picker
+        color_layout = QtW.QHBoxLayout()
+        self.color_picker = QtW.QPushButton("Select Blend Color")
+        self.blend_color = QColor(0, 0, 0)
+
+        self.color_preview = QtW.QFrame()
+        self.color_preview.setFixedSize(20, 20)
+        self.color_preview.setStyleSheet(f"background-color: {self.blend_color.name()}; border: 1px solid #444;")
+
+        self.color_picker.clicked.connect(self.choose_color)
+
+        color_layout.addWidget(self.color_picker)
+        color_layout.addWidget(self.color_preview)
+        blend_layout.addLayout(color_layout)
+
+        # Percentage Selector
+        pct_layout = QtW.QHBoxLayout()
+        pct_layout.addWidget(QtW.QLabel("Blend Amount:"))
+
+        self.combo_pct = QtW.QComboBox()
+        # 10% to 100% in increments of 10, Default: 50%
+        self.combo_pct.addItems([f"{i}%" for i in range(10, 101, 10)])
+        self.combo_pct.setCurrentText("50%")
+        self.combo_pct.currentIndexChanged.connect(self.update_preview)
+
+        pct_layout.addWidget(self.combo_pct)
+        blend_layout.addLayout(pct_layout)
+
+        layout.addWidget(blend_group)
+
+    def transform_color(self, original_color):
+        pct_str = self.combo_pct.currentText().replace("%", "")
+        blend_factor = int(pct_str) / 100.0     # Get percentage as a decimal
+        inverse_factor = 1.0 - blend_factor
+
+        # Calculate blended RGB color
+        _r = int(original_color.red() * inverse_factor + self.blend_color.red() * blend_factor)
+        _g = int(original_color.green() * inverse_factor + self.blend_color.green() * blend_factor)
+        _b = int(original_color.blue() * inverse_factor + self.blend_color.blue() * blend_factor)
+
+        # Convert to a compatible color
+        step_r = self.editor.snap_to_md_colors(_r)
+        step_g = self.editor.snap_to_md_colors(_g)
+        step_b = self.editor.snap_to_md_colors(_b)
+
+        return QColor(MDCOLOR_VALUES[step_r], MDCOLOR_VALUES[step_g], MDCOLOR_VALUES[step_b])
+
+    def choose_color(self):
+        color = QtW.QColorDialog.getColor(self.blend_color, self, "Choose Blend Color")
+        if color.isValid():
+            self.blend_color = color
+            self.color_preview.setStyleSheet(f"background-color: {self.blend_color.name()}; border: 1px solid #444;")
+            self.update_preview()
+
+
 class GreyscaleDialog(AdvancedEditDialog):
     def __init__(self, editor):
         super().__init__(editor, title="Apply Greyscale")
@@ -614,6 +680,7 @@ class PaletteEditor(QtW.QWidget):
         for btn in (self.btn_undo, self.btn_redo, self.btn_resize):
             btn.setFixedWidth(80)
 
+        self.btn_blend.clicked.connect(self.adv_blend_colors)
         self.btn_grey.clicked.connect(self.adv_greyscale_colors)
         self.btn_invert.clicked.connect(self.adv_invert_colors)
 
@@ -857,6 +924,16 @@ class PaletteEditor(QtW.QWidget):
             self.refresh_selection_ui()
 
             self.unsaved_changes = True
+
+    def adv_blend_colors(self):
+        # If this window is already open, bring it to focus instead of opening a duplicate
+        if self.check_active_dialog():
+            return
+
+        # Opens new window for effect preview
+        self.active_advanced_dialog = ColorBlendDialog(self)
+        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
+        self.active_advanced_dialog.show()
 
     def adv_greyscale_colors(self):
         # If this window is already open, bring it to focus instead of opening a duplicate
