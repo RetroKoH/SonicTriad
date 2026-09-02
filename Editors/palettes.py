@@ -5,8 +5,9 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor
 
-# MD-compatible RGB values (0x00 - 0xE0)
-MDCOLOR_VALUES = [0x20*x for x in range(8)]
+# Improved MD Colors (Colors match the new color library)
+MDCOLOR_VALUES = [round(x * 0xFF / 7) for x in range(8)]
+# Output: [0x00, 0x24, 0x48, 0x6D, 0x91, 0xB6, 0xDA, 0xFF]
 
 class ColorBox(QtW.QFrame):
     clicked = pyqtSignal(int, QColor)
