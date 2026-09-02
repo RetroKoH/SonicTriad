@@ -514,6 +514,175 @@ class InvertColorsDialog(AdvancedEditDialog):
         return QColor(new_r, new_g, new_b)
 
 
+""" This window does not inherit AdvancedEditDialog
+    I'll redo this later on.
+"""
+class GradientBuilderDialog(QtW.QDialog):
+    gradient_applied = pyqtSignal(list)
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+        self.setWindowTitle("Build Gradient")
+        self.setMinimumSize(680, 260)
+
+        # Initial source color is the currently active color
+        active_color = self.editor.palette_colors[self.editor.active_index]
+        self.color_src = QColor(active_color)
+        self.color_dst = QColor(255, 255, 255)  # Default dest is white
+        self.preview_boxes = []
+
+        # Setup this window (Unlike the others, we don't need to live update)
+        self.init_ui()
+        self.update_gradient()
+
+    def init_ui(self):
+        main_layout = QtW.QVBoxLayout(self)
+        content_layout = QtW.QHBoxLayout()
+
+        # -----------------------------
+        # LEFT PANEL: Options
+        # -----------------------------
+        options_layout = QtW.QVBoxLayout()
+
+        control_group = QtW.QGroupBox("Gradient Options")
+        control_layout = QtW.QGridLayout(control_group)
+
+        # Source Color Picker
+        self.btn_src = QtW.QPushButton("Select Source Color")
+        self.btn_src.clicked.connect(lambda: self.choose_color('src'))
+        self.lbl_src = QtW.QFrame()
+        self.lbl_src.setFixedSize(20, 20)
+        self.update_color_label('src')
+
+        control_layout.addWidget(self.btn_src, 0, 0)
+        control_layout.addWidget(self.lbl_src, 0, 1)
+
+        # Dest Color Picker
+        self.btn_dst = QtW.QPushButton("Select Dest Color")
+        self.btn_dst.clicked.connect(lambda: self.choose_color('dst'))
+        self.lbl_dst = QtW.QFrame()
+        self.lbl_dst.setFixedSize(20, 20)
+        self.update_color_label('dst')
+
+        control_layout.addWidget(self.btn_dst, 1, 0)
+        control_layout.addWidget(self.lbl_dst, 1, 1)
+
+        # Length Configuration
+        control_layout.addWidget(QtW.QLabel("Gradient Length:"), 2, 0)
+        self.grad_length = QtW.QSpinBox()
+        self.grad_length.setRange(2, 128)
+        self.grad_length.setValue(8)
+        self.grad_length.valueChanged.connect(self.update_gradient)
+        control_layout.addWidget(self.grad_length, 2, 1)
+
+        # Loop Toggle
+        self.chk_loop = QtW.QCheckBox("Loop Gradient")
+        self.chk_loop.toggled.connect(self.update_gradient)
+        control_layout.addWidget(self.chk_loop, 3, 0)
+
+        options_layout.addWidget(control_group)
+        options_layout.addStretch()
+        content_layout.addLayout(options_layout, stretch=1)
+
+        # -----------------------------
+        # RIGHT PANEL: Gradient Preview
+        # -----------------------------
+        preview_group = QtW.QGroupBox("Gradient Preview")
+        preview_group_layout = QtW.QVBoxLayout(preview_group)
+
+        scroll_area = QtW.QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QtW.QWidget()
+
+        self.grid_layout = QtW.QGridLayout(scroll_content)
+        self.grid_layout.setSpacing(4)
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        scroll_area.setWidget(scroll_content)
+        preview_group_layout.addWidget(scroll_area)
+        content_layout.addWidget(preview_group, stretch=2)
+
+        main_layout.addLayout(content_layout)
+
+        # -----------------------------
+        # BOTTOM PANEL: Action Buttons
+        # -----------------------------
+        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        btn_box = QtW.QDialogButtonBox(buttons)
+
+        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
+        btn_apply.setText("Apply")
+
+        btn_apply.clicked.connect(self.on_apply)
+        btn_box.rejected.connect(self.reject)
+        main_layout.addWidget(btn_box)
+
+    def on_apply(self):
+        self.gradient_applied.emit(self.calc_gradient())
+        self.accept()
+
+    def update_gradient(self):
+        # Rebuild gradient on change
+        for box in self.preview_boxes:
+            box.deleteLater()
+        self.preview_boxes.clear()
+
+        colors = self.calc_gradient()
+        MAX_COLUMNS = 16
+        for idx, color in enumerate(colors):
+            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+            box = QtW.QFrame()
+            box.setFixedSize(20, 20)
+            box.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #444;")
+            self.grid_layout.addWidget(box, row, col)
+            self.preview_boxes.append(box)
+
+    def choose_color(self, target):
+        current = self.color_src if target == 'src' else self.color_dst
+        color = QtW.QColorDialog.getColor(current, self, "Select Color")
+
+        if color.isValid():
+            if target == 'src':
+                self.color_src = color
+            else:
+                self.color_dst = color
+
+            self.update_color_label(target)
+            self.update_gradient()
+
+    def update_color_label(self, target):
+        color = self.color_src if target == 'src' else self.color_dst
+        lbl = self.lbl_src if target == 'src' else self.lbl_dst
+        lbl.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #444;")
+
+    def calc_gradient(self):
+        length = self.grad_length.value()
+        loop = self.chk_loop.isChecked()
+        colors = []
+
+        for _i in range(length):
+            if loop:
+                # Wave mapping (NEW): returns a blend factor (_t) that goes from 0 to 1 and back to >0
+                _t = 1.0 - abs(1.0 - (2.0 * _i / length))
+            else:
+                # Linear mapping (Original Triad: merge_color(src, dest, ((i-pals[a])/(grad_length-1))) )
+                _t = _i / (length - 1) if length > 1 else 0
+
+            inv_t = 1.0 - _t
+            _r = int(self.color_src.red() * inv_t + self.color_dst.red() * _t)
+            _g = int(self.color_src.green() * inv_t + self.color_dst.green() * _t)
+            _b = int(self.color_src.blue() * inv_t + self.color_dst.blue() * _t)
+
+            # Convert to MD colors
+            step_r = self.editor.snap_to_md_colors(_r)
+            step_g = self.editor.snap_to_md_colors(_g)
+            step_b = self.editor.snap_to_md_colors(_b)
+            colors.append(QColor(MDCOLOR_VALUES[step_r], MDCOLOR_VALUES[step_g], MDCOLOR_VALUES[step_b]))
+
+        return colors
+
+
 class PaletteEditor(QtW.QWidget):
     # Signals for advanced editing preview sync
     selection_changed = pyqtSignal()
@@ -713,12 +882,13 @@ class PaletteEditor(QtW.QWidget):
         self.btn_grey = QtW.QPushButton("Greyscale")
         self.btn_invert = QtW.QPushButton("Invert Colors")
         self.btn_gradient = QtW.QPushButton("Build Gradient")
-        for btn in (self.btn_undo, self.btn_redo, self.btn_resize):
-            btn.setFixedWidth(80)
+        for btn in (self.btn_blend, self.btn_grey, self.btn_invert, self.btn_gradient):
+            btn.setFixedWidth(140)
 
         self.btn_blend.clicked.connect(self.adv_blend_colors)
         self.btn_grey.clicked.connect(self.adv_greyscale_colors)
         self.btn_invert.clicked.connect(self.adv_invert_colors)
+        self.btn_gradient.clicked.connect(self.adv_build_gradient)
 
         btn_grid_adv.addWidget(self.btn_blend, 0, 0)
         btn_grid_adv.addWidget(self.btn_grey, 0, 1)
@@ -1021,6 +1191,14 @@ class PaletteEditor(QtW.QWidget):
         self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
         self.active_advanced_dialog.show()
 
+    def adv_build_gradient(self):
+        if self.check_active_dialog():
+            return
+
+        self.active_advanced_dialog = GradientBuilderDialog(self)
+        self.active_advanced_dialog.gradient_applied.connect(self.apply_gradient)
+        self.active_advanced_dialog.show()
+
     def check_active_dialog(self):
         # If an advanced dialog is open, bring it to focus
         if self.active_advanced_dialog is not None and self.active_advanced_dialog.isVisible():
@@ -1033,6 +1211,29 @@ class PaletteEditor(QtW.QWidget):
         # Effect is only applied if the user selects "Apply"
         self.palette_colors = new_colors
         self.rebuild_grid()
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
+
+    def apply_gradient(self, gradient_colors):
+        start = self.active_index
+
+        # Inject gradient colors, expanding palette up to 128 limit if necessary
+        for i, color in enumerate(gradient_colors):
+            idx = start + i
+            if idx < len(self.palette_colors):
+                self.palette_colors[idx] = color
+            elif idx < 128:
+                self.palette_colors.append(color)
+            else:
+                break
+
+        self.rebuild_grid(start)
+
+        # Mass select the newly placed gradient colors to visually confirm placement
+        end = min(start + len(gradient_colors), len(self.palette_colors))
+        self.selected_indices = list(range(start, end))
+        self.active_index = start
+
         self.refresh_selection_ui()
         self.unsaved_changes = True
 
