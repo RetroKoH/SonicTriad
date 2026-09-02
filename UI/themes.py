@@ -9,6 +9,7 @@ THEMES = {
         "text_main": "#F0F8F8",
         "text_muted": "#B8C8D0",
         "border": "#484848",
+        "box_selected": "#FFFFFF",
         "fusion_window": QColor(30, 30, 30),
         "fusion_base": QColor(18, 18, 18),
         "fusion_button": QColor(48, 48, 48),
@@ -21,6 +22,7 @@ THEMES = {
         "text_main": "#101828",
         "text_muted": "#586068",
         "border": "#C8C8C8",
+        "box_selected": "#5058C8",
         "fusion_window": QColor(240, 240, 240),
         "fusion_base": QColor(255, 255, 255),
         "fusion_button": QColor(224, 224, 224),
@@ -31,6 +33,9 @@ THEMES = {
 def apply_theme(app, theme_name="dark"):
     t = THEMES[theme_name]
     app.setStyle("Fusion")
+
+    # Global theme token
+    app.active_theme = t
 
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, t["fusion_window"])

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from UI.themes import THEMES
+
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor, QPixmap, QFont
@@ -18,6 +20,7 @@ class ColorBox(QtW.QFrame):
         self.color = color
         self.editor = None
         self.is_selected = False
+        self.is_updating = False
 
         self.setFixedSize(32, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -35,9 +38,25 @@ class ColorBox(QtW.QFrame):
         self.is_selected = selected
         self.update_style()
 
+    def changeEvent(self, a0):
+        # Trigger update_style whenever app theme changes
+        if a0.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange):
+            if not self.is_updating:
+                self.update_style()
+        super().changeEvent(a0)
+
     def update_style(self):
-        border_color = "#FFFFFF" if self.is_selected else "#444444"
-        border_width = "3px" if self.is_selected else "1px"
+        app = QtW.QApplication.instance()
+        theme = getattr(app, "active_theme", THEMES["dark"])
+        self.is_updating = True
+
+        if self.is_selected:
+            border_color = theme.get("box_selected", "#FFFFFF")
+            border_width = "3px"
+        else:
+            border_color = theme.get("border", "#444444")
+            border_width = "1px"
+
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {self.color.name()};
@@ -45,6 +64,8 @@ class ColorBox(QtW.QFrame):
                 border-radius: 4px;
             }}
         """)
+
+        self.is_updating = False
 
     def mousePressEvent(self, a0):
         if a0.button() == Qt.MouseButton.LeftButton:
