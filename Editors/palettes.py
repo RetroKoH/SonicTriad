@@ -127,11 +127,14 @@ class ColorBox(QtW.QFrame):
         if cut:
             # Delete in reverse order to avoid issues with index shifting
             sorted_indices.reverse()
+            # Unsaved flag and undo state recording handled here
             self.editor.remove_colors(sorted_indices)
 
     def paste_colors(self, mode, target_index):
         if not self.editor.clipboard_colors:
             return
+
+        self.editor.push_undo_state()  # Record state before pasting colors
 
         clipboard_length = len(self.editor.clipboard_colors)
 
@@ -181,7 +184,7 @@ class ColorBox(QtW.QFrame):
         self.editor.selected_indices = list(range(start, end))
         self.editor.refresh_selection_ui()
 
-        self.unsaved_changes = True
+        self.editor.unsaved_changes = True
 
     def insert_color(self, mode, target_index):
         if len(self.editor.palette_colors) >= 128:
@@ -190,6 +193,8 @@ class ColorBox(QtW.QFrame):
             )
             return
 
+        self.editor.push_undo_state()  # Record state before inserting colors
+
         index = target_index if mode == "before" else target_index + 1
         self.editor.palette_colors.insert(index, QColor(0, 0, 0))
         self.editor.rebuild_grid(index)
@@ -197,11 +202,13 @@ class ColorBox(QtW.QFrame):
         self.editor.active_index = index
         self.editor.refresh_selection_ui()
 
-        self.unsaved_changes = True
+        self.editor.unsaved_changes = True
 
     def clear_color(self, index):
         if not self.editor.selected_indices:
             return
+
+        self.editor.push_undo_state()  # Record state before clearing colors
 
         black = QColor(0, 0, 0)
         for idx in self.editor.selected_indices:
@@ -210,7 +217,7 @@ class ColorBox(QtW.QFrame):
 
         self.editor.update_preview_box(black)
 
-        self.unsaved_changes = True
+        self.editor.unsaved_changes = True
 
     def delete_color(self, index):
         if not self.editor.selected_indices:
@@ -218,6 +225,7 @@ class ColorBox(QtW.QFrame):
 
         # Delete in reverse order to avoid issues with index shifting
         sorted_indices = sorted(self.editor.selected_indices, reverse=True)
+        # Unsaved flag and undo state recording handled here
         self.editor.remove_colors(sorted_indices)
 
 
@@ -840,6 +848,11 @@ class PaletteEditor(QtW.QWidget):
         self.palette_colors = [QColor(0, 0, 0) for _i in range(64)]  # Default 64 colors
         self.boxes = []
 
+        # Undo/Redo stacks
+        self.undo_stack = []
+        self.redo_stack = []
+        self.max_history = 50
+
         self.selected_indices = []
         self.active_index = 0
 
@@ -970,9 +983,13 @@ class PaletteEditor(QtW.QWidget):
         for btn in (self.btn_undo, self.btn_redo, self.btn_resize, self.btn_shift_L, self.btn_shift_R):
             btn.setFixedWidth(55)
 
+        self.btn_undo.clicked.connect(self.edit_palette_undo)
+        self.btn_redo.clicked.connect(self.edit_palette_redo)
         self.btn_resize.clicked.connect(self.edit_palette_resize)
         self.btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
         self.btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
+
+        self.update_undo_redo()
 
         btn_grid_edit.addWidget(self.btn_undo, 0, 0)
         btn_grid_edit.addWidget(self.btn_redo, 0, 1)
@@ -1281,6 +1298,34 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.populate_palette_list(self.project_palette_paths)
 
+    def edit_palette_undo(self):
+        if not self.undo_stack:
+            return
+
+        # Push palette state to redo stack
+        self.redo_stack.append([QColor(c) for c in self.palette_colors])
+
+        # Restore previous state
+        self.palette_colors = self.undo_stack.pop()
+        self.rebuild_grid()
+        self.refresh_selection_ui()
+        self.update_undo_redo()
+        self.unsaved_changes = True
+
+    def edit_palette_redo(self):
+        if not self.redo_stack:
+            return
+
+        # Push palette state to undo stack
+        self.undo_stack.append([QColor(c) for c in self.palette_colors])
+
+        # Restore next state
+        self.palette_colors = self.redo_stack.pop()
+        self.rebuild_grid()
+        self.refresh_selection_ui()
+        self.update_undo_redo()
+        self.unsaved_changes = True
+
     def edit_palette_resize(self):
         current_size = len(self.palette_colors)
         new_size, ok = QtW.QInputDialog.getInt(
@@ -1291,6 +1336,9 @@ class PaletteEditor(QtW.QWidget):
         if not ok or new_size == current_size:
             return
 
+        self.push_undo_state()  # Record state before resizing palette
+
+        # Extending palette size
         if new_size > current_size:
             # Append black colors
             self.palette_colors.extend([QColor(0, 0, 0)] * (new_size - current_size))
@@ -1298,6 +1346,7 @@ class PaletteEditor(QtW.QWidget):
             # Rebuild starting from the first newly added index
             self.rebuild_grid(current_size)
 
+        # Retracting palette size
         else:
             # Truncate the palette
             self.palette_colors = self.palette_colors[:new_size]
@@ -1322,6 +1371,8 @@ class PaletteEditor(QtW.QWidget):
         # Do nothing if multiple colors aren't selected
         if len(self.selected_indices) <= 1:
             return
+
+        self.push_undo_state()  # Record state before shifting palette
 
         # Sort indices to maintain sequential order
         sorted_indices = sorted(self.selected_indices)
@@ -1350,6 +1401,8 @@ class PaletteEditor(QtW.QWidget):
         # Unlike the other mini-windows, this one runs modally
         dialog = ColorLibraryDialog(active_color, self)
         if dialog.exec():
+            self.push_undo_state()  # Record state before applying chosen color
+
             # Apply picked color to active index
             new_color = dialog.get_color()
             self.apply_color_change(new_color)
@@ -1357,6 +1410,8 @@ class PaletteEditor(QtW.QWidget):
             self.unsaved_changes = True
 
     def mass_shift_color(self, channel, direction):
+        self.push_undo_state()  # Record state before modifying the palette
+
         # Determine target scope
         if self.opt_mass_all.isChecked():
             target_indices = range(len(self.palette_colors))
@@ -1434,12 +1489,15 @@ class PaletteEditor(QtW.QWidget):
 
     def apply_color_effect(self, new_colors):
         # Effect is only applied if the user selects "Apply"
+        self.push_undo_state()  # Record state before applying chosen color
         self.palette_colors = new_colors
         self.rebuild_grid()
         self.refresh_selection_ui()
         self.unsaved_changes = True
 
     def apply_gradient(self, gradient_colors):
+        # Effect is only applied if the user selects "Apply"
+        self.push_undo_state()  # Record state before applying gradient
         start = self.active_index
 
         # Inject gradient colors, expanding palette up to 128 limit if necessary
@@ -1615,6 +1673,7 @@ class PaletteEditor(QtW.QWidget):
         self.selected_indices = [0]
         self.active_index = 0
         self.refresh_selection_ui()
+        self.clear_history()
 
     def select_colors(self, index: int, modifiers):
         if modifiers & Qt.KeyboardModifier.ControlModifier:
@@ -1646,6 +1705,8 @@ class PaletteEditor(QtW.QWidget):
         self.refresh_selection_ui()
 
     def remove_colors(self, indices):
+        self.push_undo_state()  # Record state before removing color(s)
+
         lowest = indices[-1]     # for rebuild_grid
         clear_last = False
 
@@ -1667,9 +1728,12 @@ class PaletteEditor(QtW.QWidget):
         rebuild_start = 0 if clear_last else lowest
         self.rebuild_grid(rebuild_start)
 
+        # Prevent out-of-bounds crashes by clamping to the new palette length
+        safe_index = min(rebuild_start, len(self.palette_colors) - 1)
+
         # Adjust selection index
-        self.selected_indices = [rebuild_start]
-        self.active_index = rebuild_start
+        self.selected_indices = [safe_index]
+        self.active_index = safe_index
         self.refresh_selection_ui()
 
         self.unsaved_changes = True
@@ -1760,6 +1824,8 @@ class PaletteEditor(QtW.QWidget):
             self.clipboard_boxes.append(box)
 
     def on_slider_changed(self):
+        # Undo/Redo NOT called here. It's called in create_step_slider() instead
+
         _r = MDCOLOR_VALUES[self.r_slider.value()]
         _g = MDCOLOR_VALUES[self.g_slider.value()]
         _b = MDCOLOR_VALUES[self.b_slider.value()]
@@ -1782,6 +1848,8 @@ class PaletteEditor(QtW.QWidget):
         hex_text = self.hex_input.text()
         color = QColor(hex_text)
         if color.isValid():
+            self.push_undo_state()      # Record state before editing
+
             _r = self.snap_to_md_colors(color.red())
             _g = self.snap_to_md_colors(color.green())
             _b = self.snap_to_md_colors(color.blue())
@@ -1810,6 +1878,26 @@ class PaletteEditor(QtW.QWidget):
                 border-radius: 6px;
             }}
         """)
+
+    def push_undo_state(self):
+        # Snapshot current palette colors
+        state = [QColor(c) for c in self.palette_colors]
+        self.undo_stack.append(state)
+        if len(self.undo_stack) > self.max_history:
+            self.undo_stack.pop(0)
+
+        # Clear redo stack when we have something new to undo
+        self.redo_stack.clear()
+        self.update_undo_redo()
+
+    def update_undo_redo(self):
+        self.btn_undo.setEnabled(bool(self.undo_stack))
+        self.btn_redo.setEnabled(bool(self.redo_stack))
+
+    def clear_history(self):
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.update_undo_redo()
 
     @property
     def unsaved_changes(self):
@@ -1879,7 +1967,10 @@ class PaletteEditor(QtW.QWidget):
         slider.setPageStep(1)
         slider.setTickPosition(QtW.QSlider.TickPosition.TicksBelow)
         slider.setTickInterval(1)
-        slider.valueChanged.connect(callback)
+
+        # Occurs as soon as user begins dragging slider
+        slider.sliderPressed.connect(self.push_undo_state)  # Record state here
+        slider.valueChanged.connect(callback)               # Callback upon slider change
         return slider
 
     def create_slider_row(self, label_text, slider, val_label):
