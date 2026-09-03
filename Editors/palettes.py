@@ -121,6 +121,7 @@ class ColorBox(QtW.QFrame):
         # Sort colors to keep them in visual order when pasting
         sorted_indices = sorted(self.editor.selected_indices)
         self.editor.clipboard_colors = [QColor(self.editor.palette_colors[idx]) for idx in sorted_indices]
+        self.editor.refresh_clipboard()
 
         # If only Copying, stop here. Otherwise, remove copied colors
         if cut:
@@ -842,6 +843,9 @@ class PaletteEditor(QtW.QWidget):
         self.selected_indices = []
         self.active_index = 0
 
+        self.clipboard_colors = []
+        self.clipboard_boxes = []
+
         self.active_palette_path = None
         self.project_palette_paths = []
 
@@ -859,6 +863,8 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # LEFT PANEL: Dynamic Color Grid
         # -----------------------------
+        left_panel = QtW.QVBoxLayout()
+
         self.color_box = QtW.QGroupBox(
             "Palette Grid (Left Click: Select;"+
             "    Left+Shift: Mass Select;"+
@@ -879,7 +885,37 @@ class PaletteEditor(QtW.QWidget):
         scroll_area.setWidget(scroll_content)
         self.color_layout.addWidget(scroll_area)
 
-        self.main_layout.addWidget(self.color_box, stretch=2)
+        left_panel.addWidget(self.color_box, stretch=2)
+
+        # Palette Clipboard
+        self.clipboard_group = QtW.QGroupBox("Palette Clipboard")
+        clipboard_layout = QtW.QVBoxLayout(self.clipboard_group)
+
+        clip_header_layout = QtW.QHBoxLayout()
+        self.btn_clear_clipboard = QtW.QPushButton("Clear Clipboard")
+        self.btn_clear_clipboard.setFixedWidth(110)
+        self.btn_clear_clipboard.clicked.connect(self.clear_clipboard)
+        clip_header_layout.addStretch()
+        clip_header_layout.addWidget(self.btn_clear_clipboard)
+
+        clipboard_layout.addLayout(clip_header_layout)
+
+        clipboard_scroll = QtW.QScrollArea()
+        clipboard_scroll.setWidgetResizable(True)
+        clipboard_content = QtW.QWidget()
+
+        self.clipboard_empty_label = None
+
+        self.clipboard_grid_layout = QtW.QGridLayout(clipboard_content)
+        self.clipboard_grid_layout.setSpacing(6)
+        self.clipboard_grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        clipboard_scroll.setWidget(clipboard_content)
+        clipboard_layout.addWidget(clipboard_scroll)
+
+        left_panel.addWidget(self.clipboard_group, stretch=1)
+
+        self.main_layout.addLayout(left_panel, stretch=2)
 
         # -----------------------------
         # RIGHT PANEL: Editing Controls
@@ -1046,6 +1082,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
+        self.refresh_clipboard()
 
     def file_palette_new(self):
         count, ok = QtW.QInputDialog.getInt(
@@ -1273,7 +1310,7 @@ class PaletteEditor(QtW.QWidget):
 
             self.refresh_selection_ui()
 
-            self.unsaved_changes = True
+        self.unsaved_changes = True
 
     def open_color_library(self):
         # Get active color from the main editor
@@ -1651,6 +1688,45 @@ class PaletteEditor(QtW.QWidget):
 
         # Emit signal so open dialogs know selection or active colors changed
         self.selection_changed.emit()
+
+    def clear_clipboard(self):
+        self.clipboard_colors.clear()
+        self.refresh_clipboard()
+
+    def refresh_clipboard(self):
+        # Clear clipboard boxes
+        for box in self.clipboard_boxes:
+            box.deleteLater()
+        self.clipboard_boxes.clear()
+
+        if self.clipboard_empty_label:
+            self.clipboard_empty_label.deleteLater()
+            self.clipboard_empty_label = None
+
+        # Display placeholder text when empty
+        if not self.clipboard_colors:
+            self.clipboard_empty_label = QtW.QLabel("Clipboard is empty (Right-click grid colors to Copy or Cut)")
+            self.clipboard_empty_label.setStyleSheet("color: #777777; font-style: italic;")
+            self.clipboard_grid_layout.addWidget(self.clipboard_empty_label, 0, 0)
+            return
+
+        # Render copied swatches
+        MAX_COLUMNS = 16
+        for idx, color in enumerate(self.clipboard_colors):
+            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+
+            box = QtW.QFrame()
+            box.setFixedSize(28, 28)
+            box.setToolTip(f"Clipboard #{idx}: {color.name().upper()}")
+            box.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {color.name()};
+                    border: 1px solid #555555;
+                    border-radius: 4px;
+                }}
+            """)
+            self.clipboard_grid_layout.addWidget(box, row, col)
+            self.clipboard_boxes.append(box)
 
     def on_slider_changed(self):
         _r = MDCOLOR_VALUES[self.r_slider.value()]
