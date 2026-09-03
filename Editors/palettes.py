@@ -4,8 +4,8 @@ from pathlib import Path
 from UI.themes import THEMES
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QColor, QPixmap, QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QMimeData, QByteArray
+from PyQt6.QtGui import QColor, QPixmap, QFont, QDrag
 
 # Improved MD Colors (Colors match the new color library)
 MDCOLOR_VALUES = [x * 255 // 7 for x in range(8)]
@@ -21,9 +21,15 @@ class ColorBox(QtW.QFrame):
         self.editor = None
         self.is_selected = False
         self.is_updating = False
+        self.pending_single_select = False  # To differentiate selection clicks and dragging clicks
 
         self.setFixedSize(32, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Drag and Drop
+        self.setAcceptDrops(True)
+        self.drag_start_pos = None
+
         self.update_style()
 
         # Right-click menu functionality
@@ -69,10 +75,89 @@ class ColorBox(QtW.QFrame):
 
     def mousePressEvent(self, a0):
         if a0.button() == Qt.MouseButton.LeftButton:
+            # Get starting position for drag-and-drop
+            self.drag_start_pos = a0.pos()
             modifiers = a0.modifiers()
+
             if self.editor:
-                self.editor.select_colors(self.index, modifiers)
-            #self.clicked.emit(self.index, self.color)
+                has_modifier = modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+
+                # Defer single selection if clicking an item already inside a multi-selection
+                if (
+                    not has_modifier and self.index in self.editor.selected_indices
+                    and len(self.editor.selected_indices) > 1
+                ):
+                    self.pending_single_select = True
+                else:
+                    self.pending_single_select = False
+                    self.editor.select_colors(self.index, modifiers)
+
+    def mouseReleaseEvent(self, a0):
+        # If clicked and released without dragging, apply single selection
+        if a0.button() == Qt.MouseButton.LeftButton and self.pending_single_select:
+            self.pending_single_select = False
+            if self.editor:
+                self.editor.select_colors(self.index, a0.modifiers())
+
+        super().mouseReleaseEvent(a0)
+
+    def mouseMoveEvent(self, a0):
+        if not (a0.buttons() & Qt.MouseButton.LeftButton) or not self.drag_start_pos:
+            return
+
+        # Check if drag threshold reached
+        if (a0.pos() - self.drag_start_pos).manhattanLength() < QtW.QApplication.startDragDistance():
+            return
+
+        # Cancel deferred selection update when dragging starts
+        self.pending_single_select = False
+
+        # Determine indices to drag
+        selected = sorted(self.editor.selected_indices) if self.editor else [self.index]
+
+        # Check if selected indices form a contiguous block
+        is_contiguous = len(selected) > 0 and (selected[-1] - selected[0] == len(selected) - 1)
+
+        if is_contiguous and self.index in selected:
+            # Drag the whole contiguous block (Pal size will NOT extend)
+            drag_indices = selected
+        else:
+            # Fallback to single dragged index if non-contiguous
+            drag_indices = [self.index]
+
+        # Store source index list
+        # We need to dump to JSON because Qt's drag-and-drop system does not understand
+        # Python structures (such as the lists that store palette data)!
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData("application/x-palette-indices", json.dumps(drag_indices).encode("utf-8"))
+        drag.setMimeData(mime)
+
+        # Visual drag preview
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(a0.pos())
+
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def dragEnterEvent(self, a0):
+        if a0.mimeData().hasFormat("application/x-palette-indices"):
+            a0.acceptProposedAction()
+
+    def dropEvent(self, a0):
+        if not a0.mimeData().hasFormat("application/x-palette-indices"):
+            return
+
+        # Reconstruct Python index data
+        data = a0.mimeData().data("application/x-palette-indices").data().decode("utf-8")
+        src_indices = json.loads(data)
+        target_start = self.index
+
+        # Swap colors through the editor
+        if self.editor:
+            self.editor.swap_colors(src_indices, target_start)
+
+        a0.acceptProposedAction()
 
     def show_edit_menu(self, pos, box):
         menu = QtW.QMenu(self)
@@ -1737,6 +1822,56 @@ class PaletteEditor(QtW.QWidget):
         self.refresh_selection_ui()
 
         self.unsaved_changes = True
+
+    def swap_colors(self, src_indices, target_start):
+        if not src_indices:
+            return
+
+        self.push_undo_state()  # Record state before swapping
+
+        # Prevent swapping out of bounds
+        count = len(src_indices)
+        if target_start + count > len(self.palette_colors):
+            target_start = len(self.palette_colors) - count
+
+        # Single-item swap shortcut
+        if count == 1:
+            src_idx = src_indices[0]
+            dst_idx = target_start
+            self.palette_colors[src_idx], self.palette_colors[dst_idx] = (
+                self.palette_colors[dst_idx],
+                self.palette_colors[src_idx],
+            )
+            self.boxes[src_idx].set_color(self.palette_colors[src_idx])
+            self.boxes[dst_idx].set_color(self.palette_colors[dst_idx])
+            self.active_index = dst_idx
+            self.selected_indices = [dst_idx]
+        else:
+            # Multi-item contiguous swap
+            dst_indices = list(range(target_start, target_start + count))
+
+            # Extract source and target color blocks
+            src_colors = [QColor(self.palette_colors[_i]) for _i in src_indices]
+            dst_colors = [QColor(self.palette_colors[_i]) for _i in dst_indices]
+
+            # Exchange block colors
+            for _i, idx in enumerate(src_indices):
+                self.palette_colors[idx] = dst_colors[_i]
+                self.boxes[idx].set_color(dst_colors[_i])
+
+            for _i, idx in enumerate(dst_indices):
+                self.palette_colors[idx] = src_colors[_i]
+                self.boxes[idx].set_color(src_colors[_i])
+
+            # Set highlighted selection to the destination
+            self.active_index = target_start
+            self.selected_indices = dst_indices
+
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
+
+        # Emit signal for open dialogs (Resizing shouldn't occur here though)
+        self.palette_changed.emit()
 
     def refresh_selection_ui(self):
         # Update active selection highlighting for all boxes
