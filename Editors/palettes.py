@@ -965,14 +965,20 @@ class PaletteEditor(QtW.QWidget):
         self.btn_undo = QtW.QPushButton("Undo")
         self.btn_redo = QtW.QPushButton("Redo")
         self.btn_resize = QtW.QPushButton("Resize")
-        for btn in (self.btn_undo, self.btn_redo, self.btn_resize):
-            btn.setFixedWidth(60)
+        self.btn_shift_L = QtW.QPushButton("<<")
+        self.btn_shift_R = QtW.QPushButton(">>")
+        for btn in (self.btn_undo, self.btn_redo, self.btn_resize, self.btn_shift_L, self.btn_shift_R):
+            btn.setFixedWidth(55)
 
         self.btn_resize.clicked.connect(self.edit_palette_resize)
+        self.btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
+        self.btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
 
         btn_grid_edit.addWidget(self.btn_undo, 0, 0)
         btn_grid_edit.addWidget(self.btn_redo, 0, 1)
         btn_grid_edit.addWidget(self.btn_resize, 0, 2)
+        btn_grid_edit.addWidget(self.btn_shift_L, 0, 3)
+        btn_grid_edit.addWidget(self.btn_shift_R, 0, 4)
 
         self.pal_edit_layout.addLayout(btn_grid_edit)
         self.editor_panel.addWidget(self.pal_edit_group)
@@ -1310,6 +1316,31 @@ class PaletteEditor(QtW.QWidget):
 
             self.refresh_selection_ui()
 
+        self.unsaved_changes = True
+
+    def edit_palette_shift(self, direction):
+        # Do nothing if multiple colors aren't selected
+        if len(self.selected_indices) <= 1:
+            return
+
+        # Sort indices to maintain sequential order
+        sorted_indices = sorted(self.selected_indices)
+        colors = [self.palette_colors[i] for i in sorted_indices]
+
+        # Perform rotating shift
+        if direction == "left":
+            rotated = colors[1:] + colors[:1]
+        elif direction == "right":
+            rotated = colors[-1:] + colors[:-1]
+        else:
+            return
+
+        # Update palette array and visual box widgets
+        for idx, color in zip(sorted_indices, rotated):
+            self.palette_colors[idx] = color
+            self.boxes[idx].set_color(color)
+
+        self.refresh_selection_ui()
         self.unsaved_changes = True
 
     def open_color_library(self):
