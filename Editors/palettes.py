@@ -1177,48 +1177,48 @@ class PaletteEditor(QtW.QWidget):
 
         # Palette File Dropdown
         self.pal_select_group = QtW.QGroupBox("Select Palette")
-        self.pal_select_layout = QtW.QHBoxLayout(self.pal_select_group)
+        pal_select_layout = QtW.QHBoxLayout(self.pal_select_group)
 
         self.pal_dropdown = QtW.QComboBox()
         self.pal_dropdown.setToolTip("Select a palette file from the active project")
         self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
-        self.pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
+        pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
 
         # File Buttons
         btn_layout = QtW.QHBoxLayout()
         btn_layout.setSpacing(4)
 
-        self.btn_new = QtW.QPushButton("New")
-        self.btn_load = QtW.QPushButton("Load")
-        self.btn_save = QtW.QPushButton("Save")
-        self.btn_saveas = QtW.QPushButton("Save As...")
-        self.btn_remove = QtW.QPushButton("Remove")
-        for btn in (self.btn_new, self.btn_load, self.btn_save, self.btn_saveas, self.btn_remove):
+        btn_new = QtW.QPushButton("New")
+        btn_load = QtW.QPushButton("Load")
+        btn_save = QtW.QPushButton("Save")
+        btn_saveas = QtW.QPushButton("Save As...")
+        btn_remove = QtW.QPushButton("Remove")
+        for btn in (btn_new, btn_load, btn_save, btn_saveas, btn_remove):
             btn.setFixedWidth(55)
 
-        self.btn_new.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_new))
-        self.btn_load.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_load))
-        self.btn_save.clicked.connect(self.file_palette_save)
-        self.btn_saveas.clicked.connect(self.file_palette_save_as)
-        self.btn_remove.clicked.connect(self.file_palette_remove)
+        btn_new.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_new))
+        btn_load.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_load))
+        btn_save.clicked.connect(self.file_palette_save)
+        btn_saveas.clicked.connect(self.file_palette_save_as)
+        btn_remove.clicked.connect(self.file_palette_remove)
 
-        btn_layout.addWidget(self.btn_new)
-        btn_layout.addWidget(self.btn_load)
-        btn_layout.addWidget(self.btn_save)
-        btn_layout.addWidget(self.btn_saveas)
-        btn_layout.addWidget(self.btn_remove)
+        btn_layout.addWidget(btn_new)
+        btn_layout.addWidget(btn_load)
+        btn_layout.addWidget(btn_save)
+        btn_layout.addWidget(btn_saveas)
+        btn_layout.addWidget(btn_remove)
 
-        self.pal_select_layout.addLayout(btn_layout)
+        pal_select_layout.addLayout(btn_layout)
         left_panel.addWidget(self.pal_select_group)
 
         # Palette Grid
-        self.color_box = QtW.QGroupBox(
+        color_box = QtW.QGroupBox(
             "Palette Grid (Left Click: Select |"+
             " Left+Shift: Mass Select |"+
             " Left+Ctrl: Toggle Selection |"+
             " Right Click: Context Menu)"
         )
-        self.color_layout = QtW.QVBoxLayout(self.color_box)
+        color_layout = QtW.QVBoxLayout(color_box)
 
         # Scroll area in case palette grid extends past the window border
         scroll_area = QtW.QScrollArea()
@@ -1230,9 +1230,9 @@ class PaletteEditor(QtW.QWidget):
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         scroll_area.setWidget(scroll_content)
-        self.color_layout.addWidget(scroll_area)
+        color_layout.addWidget(scroll_area)
 
-        left_panel.addWidget(self.color_box, stretch=2)
+        left_panel.addWidget(color_box, stretch=2)
 
         # Palette Clipboard
         self.clipboard_group = QtW.QGroupBox("Palette Clipboard")
@@ -1267,50 +1267,50 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # RIGHT PANEL: Editing Controls
         # -----------------------------
-        self.editor_panel = QtW.QVBoxLayout()
+        right_panel = QtW.QVBoxLayout()
 
         # Color Entry Edit Buttons
-        self.pal_edit_group = QtW.QGroupBox("Palette Editing")
-        self.pal_edit_layout = QtW.QVBoxLayout(self.pal_edit_group)
+        pal_edit_group = QtW.QGroupBox("Palette Editing")
+        pal_edit_layout = QtW.QVBoxLayout(pal_edit_group)
 
         # Edit Buttons (Features to be considered: Undo, Redo, Resize (Add/Remove), Shift)
         btn_grid_edit = QtW.QGridLayout()
         self.btn_undo = QtW.QPushButton("Undo")
         self.btn_redo = QtW.QPushButton("Redo")
-        self.btn_resize = QtW.QPushButton("Resize")
-        self.btn_shift_L = QtW.QPushButton("<<")
-        self.btn_shift_R = QtW.QPushButton(">>")
-        for btn in (self.btn_undo, self.btn_redo, self.btn_resize, self.btn_shift_L, self.btn_shift_R):
+        btn_resize = QtW.QPushButton("Resize")
+        btn_shift_L = QtW.QPushButton("<<")
+        btn_shift_R = QtW.QPushButton(">>")
+        for btn in (self.btn_undo, self.btn_redo, btn_resize, btn_shift_L, btn_shift_R):
             btn.setFixedWidth(55)
 
         self.btn_undo.clicked.connect(self.edit_palette_undo)
         self.btn_redo.clicked.connect(self.edit_palette_redo)
-        self.btn_resize.clicked.connect(self.edit_palette_resize)
-        self.btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
-        self.btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
+        btn_resize.clicked.connect(self.edit_palette_resize)
+        btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
+        btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
 
-        self.update_undo_redo()
+        self.update_undo_redo()     # Disable Undo/Redo at the start
 
         btn_grid_edit.addWidget(self.btn_undo, 0, 0)
         btn_grid_edit.addWidget(self.btn_redo, 0, 1)
-        btn_grid_edit.addWidget(self.btn_resize, 0, 2)
-        btn_grid_edit.addWidget(self.btn_shift_L, 0, 3)
-        btn_grid_edit.addWidget(self.btn_shift_R, 0, 4)
+        btn_grid_edit.addWidget(btn_resize, 0, 2)
+        btn_grid_edit.addWidget(btn_shift_L, 0, 3)
+        btn_grid_edit.addWidget(btn_shift_R, 0, 4)
 
-        self.pal_edit_layout.addLayout(btn_grid_edit)
-        self.editor_panel.addWidget(self.pal_edit_group)
+        pal_edit_layout.addLayout(btn_grid_edit)
+        right_panel.addWidget(pal_edit_group)
 
         # Color Editing Tool
-        self.control_group = QtW.QGroupBox("Color Editing")
-        self.control_layout = QtW.QVBoxLayout(self.control_group)
+        control_group = QtW.QGroupBox("Color Editing")
+        control_layout = QtW.QVBoxLayout(control_group)
 
         # Selected Index Label
         self.index_label = QtW.QLabel("Selected Color: #0")
         self.index_label.setObjectName("infoLabel")
-        self.control_layout.addWidget(self.index_label)
+        control_layout.addWidget(self.index_label)
 
         # Hex Preview & Large Color Box
-        self.preview_layout = QtW.QHBoxLayout()
+        preview_layout = QtW.QHBoxLayout()
         self.large_preview = PreviewColorBox()
         self.large_preview.clicked.connect(self.open_color_library)
 
@@ -1318,11 +1318,11 @@ class PaletteEditor(QtW.QWidget):
         self.hex_input.setMaxLength(7)
         self.hex_input.editingFinished.connect(self.on_hex_edited)
 
-        self.preview_layout.addWidget(self.large_preview)
-        self.preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
-        self.control_layout.addLayout(self.preview_layout)
+        preview_layout.addWidget(self.large_preview)
+        preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
+        control_layout.addLayout(preview_layout)
 
-        self.control_layout.addSpacing(15)
+        control_layout.addSpacing(15)
 
         self.r_slider = self.create_step_slider(self.on_slider_changed)
         self.g_slider = self.create_step_slider(self.on_slider_changed)
@@ -1332,16 +1332,16 @@ class PaletteEditor(QtW.QWidget):
         self.g_val_label = QtW.QLabel("0")
         self.b_val_label = QtW.QLabel("0")
 
-        self.control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
-        self.control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
-        self.control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
+        control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
+        control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
+        control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
-        self.control_layout.addSpacing(15)
+        control_layout.addSpacing(15)
 
         # Mass Color Editing
-        self.mass_edit_label = QtW.QLabel("Mass Editing")
-        self.mass_edit_label.setObjectName("infoLabel")
-        self.control_layout.addWidget(self.mass_edit_label)
+        mass_edit_label = QtW.QLabel("Mass Editing")
+        mass_edit_label.setObjectName("infoLabel")
+        control_layout.addWidget(mass_edit_label)
 
         mass_scope_layout = QtW.QHBoxLayout()
         self.opt_mass_all = QtW.QRadioButton("Full Palette")
@@ -1350,23 +1350,24 @@ class PaletteEditor(QtW.QWidget):
 
         mass_scope_layout.addWidget(self.opt_mass_all)
         mass_scope_layout.addWidget(self.opt_mass_selected)
-        self.control_layout.addLayout(mass_scope_layout)
+        control_layout.addLayout(mass_scope_layout)
 
         mass_shift_layout = QtW.QGridLayout()
         mass_shift_layout.setSpacing(4)
 
-        self.btn_r_minus = QtW.QPushButton("- Red")
-        self.btn_r_plus = QtW.QPushButton("+ Red")
-        self.btn_g_minus = QtW.QPushButton("- Green")
-        self.btn_g_plus = QtW.QPushButton("+ Green")
-        self.btn_b_minus = QtW.QPushButton("- Blue")
-        self.btn_b_plus = QtW.QPushButton("+ Blue")
+        btn_r_minus = QtW.QPushButton("- Red")
+        btn_r_plus = QtW.QPushButton("+ Red")
+        btn_g_minus = QtW.QPushButton("- Green")
+        btn_g_plus = QtW.QPushButton("+ Green")
+        btn_b_minus = QtW.QPushButton("- Blue")
+        btn_b_plus = QtW.QPushButton("+ Blue")
         channels = [
-            ("Red", self.btn_r_minus, self.btn_r_plus, 'r'),
-            ("Green", self.btn_g_minus, self.btn_g_plus, 'g'),
-            ("Blue", self.btn_b_minus, self.btn_b_plus, 'b'),
+            ("Red", btn_r_minus, btn_r_plus, 'r'),
+            ("Green", btn_g_minus, btn_g_plus, 'g'),
+            ("Blue", btn_b_minus, btn_b_plus, 'b'),
         ]
 
+        # Establish all buttons here (Redo other buttons' init in a similar manner later)
         for idx, (label_text, btn_minus, btn_plus, ch) in enumerate(channels):
             lbl = QtW.QLabel(label_text)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1383,41 +1384,41 @@ class PaletteEditor(QtW.QWidget):
             mass_shift_layout.addWidget(btn_minus, grid_row + 1, 0)
             mass_shift_layout.addWidget(btn_plus, grid_row + 1, 1)
 
-        self.control_layout.addLayout(mass_shift_layout)
+        control_layout.addLayout(mass_shift_layout)
 
-        self.control_layout.addStretch()
-        self.editor_panel.addWidget(self.control_group, stretch=1)
+        control_layout.addStretch()
+        right_panel.addWidget(control_group, stretch=1)
 
         # Advanced Editing Functions
-        self.advanced_group = QtW.QGroupBox("Advanced Functions")
-        self.advanced_layout = QtW.QVBoxLayout(self.advanced_group)
+        advanced_group = QtW.QGroupBox("Advanced Functions")
+        advanced_layout = QtW.QVBoxLayout(advanced_group)
 
         # Advanced Option Buttons
         btn_grid_adv = QtW.QGridLayout()
-        self.btn_blend = QtW.QPushButton("Color Blend")
-        self.btn_grey = QtW.QPushButton("Greyscale")
-        self.btn_invert = QtW.QPushButton("Invert Colors")
-        self.btn_gradient = QtW.QPushButton("Build Gradient")
-        for btn in (self.btn_blend, self.btn_grey, self.btn_invert, self.btn_gradient):
+        btn_blend = QtW.QPushButton("Color Blend")
+        btn_grey = QtW.QPushButton("Greyscale")
+        btn_invert = QtW.QPushButton("Invert Colors")
+        btn_gradient = QtW.QPushButton("Build Gradient")
+        for btn in (btn_blend, btn_grey, btn_invert, btn_gradient):
             btn.setFixedWidth(140)
-        self.btn_extract = QtW.QPushButton("Extract Palette")
+        btn_extract = QtW.QPushButton("Extract Palette")
 
-        self.btn_blend.clicked.connect(self.adv_blend_colors)
-        self.btn_grey.clicked.connect(self.adv_greyscale_colors)
-        self.btn_invert.clicked.connect(self.adv_invert_colors)
-        self.btn_gradient.clicked.connect(self.adv_build_gradient)
-        self.btn_extract.clicked.connect(self.adv_extract_palette)
+        btn_blend.clicked.connect(self.adv_blend_colors)
+        btn_grey.clicked.connect(self.adv_greyscale_colors)
+        btn_invert.clicked.connect(self.adv_invert_colors)
+        btn_gradient.clicked.connect(self.adv_build_gradient)
+        btn_extract.clicked.connect(self.adv_extract_palette)
 
-        btn_grid_adv.addWidget(self.btn_blend, 0, 0)
-        btn_grid_adv.addWidget(self.btn_grey, 0, 1)
-        btn_grid_adv.addWidget(self.btn_invert, 1, 0)
-        btn_grid_adv.addWidget(self.btn_gradient, 1, 1)
-        btn_grid_adv.addWidget(self.btn_extract, 2, 0, 1, 2)
+        btn_grid_adv.addWidget(btn_blend, 0, 0)
+        btn_grid_adv.addWidget(btn_grey, 0, 1)
+        btn_grid_adv.addWidget(btn_invert, 1, 0)
+        btn_grid_adv.addWidget(btn_gradient, 1, 1)
+        btn_grid_adv.addWidget(btn_extract, 2, 0, 1, 2)
 
-        self.advanced_layout.addLayout(btn_grid_adv)
-        self.editor_panel.addWidget(self.advanced_group)
+        advanced_layout.addLayout(btn_grid_adv)
+        right_panel.addWidget(advanced_group)
 
-        main_layout.addLayout(self.editor_panel, stretch=1)
+        main_layout.addLayout(right_panel, stretch=1)
 
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
