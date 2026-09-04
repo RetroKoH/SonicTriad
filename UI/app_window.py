@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 
 from UI.themes import apply_theme
 from Editors.palettes import PaletteEditor
+from Editors.sprites import SpriteEditor
 
 class TriadApp(QtW.QMainWindow):
     def __init__(self, instance):
@@ -39,10 +40,12 @@ class TriadApp(QtW.QMainWindow):
 
         self.palette_editor = PaletteEditor()
         self.tabs.addTab(self.palette_editor, "Palettes")
+        self.sprite_editor = SpriteEditor()
+        self.tabs.addTab(self.sprite_editor, "Sprites")
 
-        self.init_tab("Art")
         self.init_tab("Animations")
         self.init_tab("Levels")
+        self.init_tab("Tilemaps")
 
         status_label = QtW.QLabel("Status: Idle")
         status_label.setFixedHeight(25)
