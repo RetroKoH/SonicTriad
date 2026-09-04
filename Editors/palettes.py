@@ -4,13 +4,17 @@ from pathlib import Path
 from UI.themes import THEMES
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QMimeData, QByteArray
-from PyQt6.QtGui import QColor, QPixmap, QFont, QDrag
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QMimeData, QPointF, QRectF
+from PyQt6.QtGui import QColor, QImage, QPixmap, QFont, QDrag, QPainter, QPen
 
 # Improved MD Colors (Colors match the new color library)
 MDCOLOR_VALUES = [x * 255 // 7 for x in range(8)]
 # Output: [0x00, 0x24, 0x48, 0x6D, 0x91, 0xB6, 0xDA, 0xFF]
 
+""" Color boxes
+    The first box is used within the editor, and has various functions for editing
+    The second box is used for color viewing in the editor.
+"""
 class ColorBox(QtW.QFrame):
     clicked = pyqtSignal(int, QColor)
 
@@ -329,6 +333,9 @@ class PreviewColorBox(QtW.QFrame):
         super().mousePressEvent(a0)
 
 
+""" Color Library
+    These classes are used for the Color Library (Click on the preview box)
+"""
 class ColorLibraryMap(QtW.QLabel):
     # Emits RGB step values
     color_picked = pyqtSignal(int, int, int)
@@ -436,6 +443,9 @@ class ColorLibraryDialog(QtW.QDialog):
         return self.selected_color
 
 
+""" The following classes are subtypes for the AdvancedEditDialog class.
+    They contain their own functions that edit facets of the main editor.
+"""
 class AdvancedEditDialog(QtW.QDialog):
     # Signal to apply changes to the palette's colors
     colors_applied = pyqtSignal(list)
@@ -589,9 +599,6 @@ class AdvancedEditDialog(QtW.QDialog):
         return QColor(original_color)
 
 
-""" The following classes are subtypes for the AdvancedEditDialog class.
-    They contain their own functions that edit facets of the main editor.
-"""
 class ColorBlendDialog(AdvancedEditDialog):
     def __init__(self, editor):
         super().__init__(editor, title="Bland Colors")
@@ -921,6 +928,211 @@ class GradientBuilderDialog(QtW.QDialog):
         return colors
 
 
+""" Basic Palette Extractor
+    To-Do: Add full palette generation from screenshot 
+"""
+class PaletteExtractDialog(QtW.QDialog):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+        self.setWindowTitle("Extract Palette")
+        self.setMinimumSize(800, 600)
+
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QtW.QVBoxLayout(self)
+
+        # Top Bar: Load Button & Status
+        top_layout = QtW.QHBoxLayout()
+        btn_load = QtW.QPushButton("Load Image...")
+        btn_load.clicked.connect(self.browse_image)
+        lbl_status = QtW.QLabel("Left-Click to Pick Color | Scroll to Zoom | Right-Click to Pan")
+
+        top_layout.addWidget(btn_load)
+        top_layout.addSpacing(15)
+        top_layout.addWidget(lbl_status)
+        top_layout.addStretch()
+        main_layout.addLayout(top_layout)
+
+        # Workspace: Picker View + Magnifier
+        workspace_layout = QtW.QHBoxLayout()
+
+        self.picker_view = ImagePickerView()
+        self.picker_view.pixel_hovered.connect(self.on_pixel_hover)
+        self.picker_view.pixel_clicked.connect(self.on_pixel_picked)
+
+        self.magnifier = MagnifierWidget()
+
+        # Right Side Panel
+        side_panel = QtW.QVBoxLayout()
+        side_panel.addWidget(self.magnifier)
+        side_panel.addStretch()
+
+        workspace_layout.addWidget(self.picker_view, stretch=1)
+        workspace_layout.addLayout(side_panel)
+        main_layout.addLayout(workspace_layout)
+
+    def browse_image(self):
+        file_path, _ = QtW.QFileDialog.getOpenFileName(
+            self, "Open Image", "", "Images (*.png *.bmp *.gif *.jpg)"
+        )
+        if file_path:
+            self.picker_view.load_image(file_path)
+
+    def on_pixel_hover(self, image, scene_pos):
+        self.magnifier.update_view(image, scene_pos)
+
+    def on_pixel_picked(self, raw_color):
+        # Snaps picked color
+        _r = min(MDCOLOR_VALUES, key=lambda x: abs(x - raw_color.red()))
+        _g = min(MDCOLOR_VALUES, key=lambda x: abs(x - raw_color.green()))
+        _b = min(MDCOLOR_VALUES, key=lambda x: abs(x - raw_color.blue()))
+        snapped_color = QColor(_r, _g, _b)
+
+        # # Record state before extracting color
+        self.editor.push_undo_state()
+
+        # Apply to current index in main editor
+        self.editor.apply_color_change(snapped_color)
+        self.editor.unsaved_changes = True
+
+        # Advance selection sequentially, wrapping around if needed
+        next_idx = (self.editor.active_index + 1) % len(self.editor.palette_colors)
+        self.editor.active_index = next_idx
+        self.editor.selected_indices = [next_idx]
+        self.editor.refresh_selection_ui()
+
+
+class ImagePickerView(QtW.QGraphicsView):
+    """Handles image display, zoom, pan, and click/hover events for PaletteExtractDialog"""
+    pixel_hovered = pyqtSignal(QImage, QPointF)
+    pixel_clicked = pyqtSignal(QColor)
+
+    def __init__(self):
+        super().__init__()
+        self.scene = QtW.QGraphicsScene(self)
+        self.setScene(self.scene)
+        self.setMouseTracking(True)
+        self.setTransformationAnchor(QtW.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setDragMode(QtW.QGraphicsView.DragMode.NoDrag)
+
+        # Optional: Hide scroll-bars
+#        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+#        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.image = None
+        self.image_map = None
+        self.pan_start = None   # initial mouse position on right-click
+
+    def load_image(self, file_path):
+        self.image = QImage(file_path)
+        pixmap = QPixmap.fromImage(self.image)
+        self.scene.clear()
+        self.image_map = self.scene.addPixmap(pixmap)
+        self.setSceneRect(QRectF(pixmap.rect()))
+        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def wheelEvent(self, event):
+        zoom_factor = 1.25 if event.angleDelta().y() > 0 else 0.8
+        self.scale(zoom_factor, zoom_factor)
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+
+        # Handle Right-Click Panning
+        if (event.buttons() & Qt.MouseButton.RightButton) and self.pan_start is not None:
+            delta = event.pos() - self.pan_start
+            self.pan_start = event.pos()
+
+            # Scroll canvas in reverse direction of mouse motion
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            return
+
+        # Magnifier updates
+        if self.image_map and self.image:
+            scene_pos = self.mapToScene(event.pos())
+            self.pixel_hovered.emit(self.image, scene_pos)
+
+    def mousePressEvent(self, event):
+        # Left-click: Extract color
+        if event.button() == Qt.MouseButton.LeftButton and self.image_map and self.image:
+            scene_pos = self.mapToScene(event.pos())
+            x, y = int(scene_pos.x()), int(scene_pos.y())
+            if 0 <= x < self.image.width() and 0 <= y < self.image.height():
+                self.pixel_clicked.emit(self.image.pixelColor(x, y))
+
+        # Right-click: Panning
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.pan_start = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        # Right-click: Stop panning
+        if event.button() == Qt.MouseButton.RightButton:
+            self.pan_start = None
+            self.unsetCursor()
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
+
+class MagnifierWidget(QtW.QWidget):
+    """Displays a zoomed-in pixel grid and crosshair for PaletteExtractDialog"""
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(140, 140)
+        self.image = None
+        self.hover_pos = QPointF(0, 0)
+        self.zoom = 10  # Pixel scale factor
+
+    def update_view(self, image, pos):
+        self.image = image
+        self.hover_pos = pos
+        self.update()
+
+    def paintEvent(self, a0):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.GlobalColor.black)
+        if not self.image:
+            return
+
+        src_x, src_y = int(self.hover_pos.x()), int(self.hover_pos.y())
+        pixels_across = self.width() // self.zoom
+        half_pixels = pixels_across // 2
+
+        # Draw magnified pixels
+        for dx in range(-half_pixels, half_pixels + 1):
+            for dy in range(-half_pixels, half_pixels + 1):
+                px, py = src_x + dx, src_y + dy
+                if 0 <= px < self.image.width() and 0 <= py < self.image.height():
+                    color = self.image.pixelColor(px, py)
+                    rect = QRectF((dx + half_pixels) * self.zoom, (dy + half_pixels) * self.zoom, self.zoom, self.zoom)
+                    painter.fillRect(rect, color)
+
+        # Draw grid
+        painter.setPen(QColor(80, 80, 80, 180))
+        for i in range(pixels_across + 1):
+            painter.drawLine(i * self.zoom, 0, i * self.zoom, self.height())
+            painter.drawLine(0, i * self.zoom, self.width(), i * self.zoom)
+
+        # Draw center crosshair
+        center = half_pixels * self.zoom
+        painter.setPen(QPen(Qt.GlobalColor.white, 1))
+        painter.drawRect(center, center, self.zoom, self.zoom)
+        painter.setPen(QPen(Qt.GlobalColor.black, 1, Qt.PenStyle.DotLine))
+        painter.drawRect(center, center, self.zoom, self.zoom)
+
+
+""" Top-Level Editor
+    Everything above is utilized within this class
+"""
 class PaletteEditor(QtW.QWidget):
     # Signals for advanced editing preview sync
     selection_changed = pyqtSignal()
@@ -1124,6 +1336,10 @@ class PaletteEditor(QtW.QWidget):
         self.control_layout.addSpacing(15)
 
         # Mass Color Editing
+        self.mass_edit_label = QtW.QLabel("Mass Editing")
+        self.mass_edit_label.setObjectName("infoLabel")
+        self.control_layout.addWidget(self.mass_edit_label)
+
         mass_edit_layout = QtW.QHBoxLayout()
         self.opt_mass_all = QtW.QRadioButton("Full Palette")
         self.opt_mass_selected = QtW.QRadioButton("Selected Color(s)")
@@ -1134,12 +1350,18 @@ class PaletteEditor(QtW.QWidget):
         self.control_layout.addLayout(mass_edit_layout)
 
         mass_shift_layout = QtW.QGridLayout()
-        self.btn_r_minus = QtW.QPushButton("- Red")
-        self.btn_r_plus = QtW.QPushButton("+ Red")
-        self.btn_g_minus = QtW.QPushButton("- Green")
-        self.btn_g_plus = QtW.QPushButton("+ Green")
-        self.btn_b_minus = QtW.QPushButton("- Blue")
-        self.btn_b_plus = QtW.QPushButton("+ Blue")
+        self.btn_r_minus = QtW.QPushButton("- R")
+        self.btn_r_plus = QtW.QPushButton("+ R")
+        self.btn_g_minus = QtW.QPushButton("- G")
+        self.btn_g_plus = QtW.QPushButton("+ G")
+        self.btn_b_minus = QtW.QPushButton("- B")
+        self.btn_b_plus = QtW.QPushButton("+ B")
+        for btn in (
+                self.btn_r_minus, self.btn_r_plus,
+                self.btn_g_minus, self.btn_g_plus,
+                self.btn_b_minus, self.btn_b_plus
+        ):
+            btn.setFixedWidth(40)
 
         self.btn_r_minus.clicked.connect(lambda: self.mass_shift_color('r', -1))
         self.btn_r_plus.clicked.connect(lambda: self.mass_shift_color('r', 1))
@@ -1148,12 +1370,12 @@ class PaletteEditor(QtW.QWidget):
         self.btn_b_minus.clicked.connect(lambda: self.mass_shift_color('b', -1))
         self.btn_b_plus.clicked.connect(lambda: self.mass_shift_color('b', 1))
 
-        mass_shift_layout.addWidget(self.btn_r_minus, 0, 0)
-        mass_shift_layout.addWidget(self.btn_r_plus, 0, 1)
-        mass_shift_layout.addWidget(self.btn_g_minus, 1, 0)
-        mass_shift_layout.addWidget(self.btn_g_plus, 1, 1)
-        mass_shift_layout.addWidget(self.btn_b_minus, 2, 0)
-        mass_shift_layout.addWidget(self.btn_b_plus, 2, 1)
+        mass_shift_layout.addWidget(self.btn_r_minus, 1, 0)
+        mass_shift_layout.addWidget(self.btn_r_plus, 1, 1)
+        mass_shift_layout.addWidget(self.btn_g_minus, 1, 2)
+        mass_shift_layout.addWidget(self.btn_g_plus, 1, 3)
+        mass_shift_layout.addWidget(self.btn_b_minus, 1, 4)
+        mass_shift_layout.addWidget(self.btn_b_plus, 1, 5)
 
         self.control_layout.addLayout(mass_shift_layout)
 
@@ -1172,16 +1394,19 @@ class PaletteEditor(QtW.QWidget):
         self.btn_gradient = QtW.QPushButton("Build Gradient")
         for btn in (self.btn_blend, self.btn_grey, self.btn_invert, self.btn_gradient):
             btn.setFixedWidth(140)
+        self.btn_extract = QtW.QPushButton("Extract Palette")
 
         self.btn_blend.clicked.connect(self.adv_blend_colors)
         self.btn_grey.clicked.connect(self.adv_greyscale_colors)
         self.btn_invert.clicked.connect(self.adv_invert_colors)
         self.btn_gradient.clicked.connect(self.adv_build_gradient)
+        self.btn_extract.clicked.connect(self.adv_extract_palette)
 
         btn_grid_adv.addWidget(self.btn_blend, 0, 0)
         btn_grid_adv.addWidget(self.btn_grey, 0, 1)
         btn_grid_adv.addWidget(self.btn_invert, 1, 0)
         btn_grid_adv.addWidget(self.btn_gradient, 1, 1)
+        btn_grid_adv.addWidget(self.btn_extract, 2, 0, 1, 2)
 
         self.advanced_layout.addLayout(btn_grid_adv)
         self.editor_panel.addWidget(self.advanced_group)
@@ -1562,6 +1787,13 @@ class PaletteEditor(QtW.QWidget):
 
         self.active_advanced_dialog = GradientBuilderDialog(self)
         self.active_advanced_dialog.gradient_applied.connect(self.apply_gradient)
+        self.active_advanced_dialog.show()
+
+    def adv_extract_palette(self):
+        if self.check_active_dialog():
+            return
+
+        self.active_advanced_dialog = PaletteExtractDialog(self)
         self.active_advanced_dialog.show()
 
     def check_active_dialog(self):
