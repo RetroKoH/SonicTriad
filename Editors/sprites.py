@@ -26,6 +26,9 @@ class SpriteEditor(QtW.QWidget):
         # Used in the art file manager
         self.art_rows = []  # Stores (path_input, offset_spin, comp_combo) for art loading
 
+        # Used in the map file manager
+        self.map_widget = None
+
         self.init_ui()
 
     def init_ui(self):
@@ -150,11 +153,14 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(False)
         self.btn_map_save.setEnabled(False)
 
+        self.btn_map_add.clicked.connect(self.on_map_add_clicked)
+
         mappings_layout.addLayout(map_btn_layout)
 
-        # Mapping/DPLC entry container
+        # Mapping/DPLC entry container (No vertical scrollbar)
         map_entries_scroll = QtW.QScrollArea()
         map_entries_scroll.setWidgetResizable(True)
+        map_entries_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.map_entries_widget = QtW.QWidget()
         self.map_entries_layout = QtW.QVBoxLayout(self.map_entries_widget)
@@ -490,7 +496,7 @@ class SpriteEditor(QtW.QWidget):
         project_dir = getattr(main_win, "project_root_dir", None)
         start_dir = str(project_dir) if project_dir else ""
 
-        # # Save dialog for new art file, WITHOUT creating the file
+        # Save dialog for new art file, WITHOUT creating the file
         file_path, _ = QtW.QFileDialog.getSaveFileName(
             self, "New Art Tile File", start_dir, "Art Tile Files (*.unc *.bin);;All Files (*)"
         )
@@ -668,3 +674,120 @@ class SpriteEditor(QtW.QWidget):
         has_rows = len(self.art_rows) > 0
         self.btn_art_load.setEnabled(has_rows)
         self.btn_art_save.setEnabled(has_rows)
+
+    def on_map_add_clicked(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new mapping file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "New Mapping File", start_dir, "Mapping Files (*.asm *.bin);;All Files (*)"
+        )
+
+        # If successful, create new widgets under the mappings tab
+        if file_path:
+            self.add_mapping_asset(file_path)
+
+    def add_mapping_asset(self, file_path):
+        # Prevent adding multiple mapping assets
+        if self.map_widget is not None:
+            return
+
+        self.map_widget = QtW.QWidget()
+        layout = QtW.QVBoxLayout(self.map_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Primary Mapping Row
+        map_row_widget = QtW.QWidget()
+        map_row = QtW.QHBoxLayout(map_row_widget)
+        map_row.setContentsMargins(0, 0, 0, 0)
+
+        map_path_input = QtW.QLineEdit(file_path)
+
+        map_name_input = QtW.QLineEdit()
+        map_name_input.setPlaceholderText("Map_")
+        map_name_input.setFixedWidth(100)
+
+        btn_remove = QtW.QPushButton("Remove")
+        btn_remove.setFixedWidth(50)
+        btn_remove.clicked.connect(self.remove_mapping_asset)
+
+        map_row.addWidget(map_path_input, stretch=1)
+        map_row.addWidget(map_name_input)
+        map_row.addWidget(btn_remove)
+
+        # DPLC Checkbox
+        dplc_cb = QtW.QCheckBox("Enable DPLCs")
+
+        # DPLC Row (Hidden by default)
+        dplc_row_widget = QtW.QWidget()
+        dplc_row = QtW.QHBoxLayout(dplc_row_widget)
+        dplc_row.setContentsMargins(0, 0, 0, 0)
+
+        dplc_path_input = QtW.QLineEdit()
+        dplc_path_input.setPlaceholderText("DPLC Filepath...")
+
+        # Browse button to grab the DPLC file
+        btn_dplc_browse = QtW.QPushButton("...")
+        btn_dplc_browse.setFixedWidth(30)
+        btn_dplc_browse.clicked.connect(lambda: self.browse_dplc(dplc_path_input))
+
+        dplc_name_input = QtW.QLineEdit()
+        dplc_name_input.setPlaceholderText("DPLC_")
+        dplc_name_input.setFixedWidth(100)
+
+        # Invisible spacer to keep textboxes aligned with the row above
+        spacer = QtW.QWidget()
+        spacer.setFixedWidth(50)
+
+        dplc_row.addWidget(dplc_path_input, stretch=1)
+        dplc_row.addWidget(btn_dplc_browse)
+        dplc_row.addWidget(dplc_name_input)
+        dplc_row.addWidget(spacer)
+
+        # Connect checkbox to visibility toggle
+        dplc_row_widget.setVisible(False)
+        dplc_cb.toggled.connect(dplc_row_widget.setVisible)
+
+        # Assembly
+        layout.addWidget(map_row_widget)
+        layout.addWidget(dplc_cb)
+        layout.addWidget(dplc_row_widget)
+
+        self.map_entries_layout.addWidget(self.map_widget)
+        self.eval_map_capacity()
+
+    def browse_dplc(self, line_edit):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new DPLC file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "Select DPLC File", start_dir, "DPLC Files (*.asm *.bin);;All Files (*)"
+        )
+
+        # If successful, store DPLC filepath
+        if file_path:
+            line_edit.setText(file_path)
+
+    def remove_mapping_asset(self):
+        # Removes the mapping/DPLC widget block and re-enables the Add button
+        if self.map_widget:
+            self.map_entries_layout.removeWidget(self.map_widget)
+            self.map_widget.deleteLater()
+            self.map_widget = None
+
+        # This re-enables the Add button
+        self.eval_map_capacity()
+
+    def eval_map_capacity(self):
+        # Disable Add and Enable Load/Save if map asset is loaded
+        has_asset = self.map_widget is not None
+
+        self.btn_map_add.setDisabled(has_asset)
+        self.btn_map_load.setEnabled(has_asset)
+        self.btn_map_save.setEnabled(has_asset)
