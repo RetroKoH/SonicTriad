@@ -214,6 +214,34 @@ class SpriteEditor(QtW.QWidget):
 
         right_panel.addWidget(spr_palette_group)
 
+        # Art Viewer (Moved from left panel)
+        self.vram_box = QtW.QGroupBox("Art Tile Viewer")
+        art_viewer_layout = QtW.QVBoxLayout(self.vram_box)
+
+        # Active Palette Line Selector for the Viewer
+        viewer_controls = QtW.QHBoxLayout()
+        viewer_controls.addWidget(QtW.QLabel("Preview Palette Line:"))
+        self.viewer_line_combo = QtW.QComboBox()
+        self.viewer_line_combo.addItems(["Line 0", "Line 1", "Line 2", "Line 3"])
+        self.viewer_line_combo.currentIndexChanged.connect(self.update_sprite_viewer)
+
+        viewer_controls.addWidget(self.viewer_line_combo)
+        viewer_controls.addStretch()
+        art_viewer_layout.addLayout(viewer_controls)
+
+        # Scrollable Canvas
+        self.vram_scroll = QtW.QScrollArea()
+        self.vram_scroll.setWidgetResizable(True)
+        self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vram_scroll.setStyleSheet("background-color: #222222;")  # Dark backdrop
+
+        self.vram_label = QtW.QLabel()
+        self.vram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vram_scroll.setWidget(self.vram_label)
+
+        art_viewer_layout.addWidget(self.vram_scroll)
+        right_panel.addWidget(self.vram_box, stretch=2)
+
         main_layout.addLayout(right_panel, stretch=1)
 
     def on_pal_add_clicked(self):
@@ -293,6 +321,9 @@ class SpriteEditor(QtW.QWidget):
         for _i, color in enumerate(self.palette_colors):
             if _i < len(self.palette_boxes):
                 self.palette_boxes[_i].set_color(color)
+
+        # Refresh VRAM after loading art
+        self.update_sprite_viewer()
 
     def on_pal_save_clicked(self, *args):
         """Saves palette grid colors to the files specified in the file manager"""
@@ -487,7 +518,8 @@ class SpriteEditor(QtW.QWidget):
                     self, "Art Load Error", f"Could not load art file {path.name}:\n{str(e)}"
                 )
 
-        # Need to add a refresh here, once the art viewer is ready
+        # Refresh VRAM after loading art
+        self.update_sprite_viewer()
 
     def add_art_row(self, file_path):
         # Cap sprite build at 3 art files
@@ -546,6 +578,57 @@ class SpriteEditor(QtW.QWidget):
         row_widget.deleteLater()
 
         self.eval_art_capacity()
+
+    def update_sprite_viewer(self):
+        """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
+        from PyQt6.QtGui import QImage, QPixmap
+
+        # size: 16 x 128 tiles
+        vram_width_px = 16 * 8
+        vram_height_px = 128 * 8
+
+        # Transparent ARGB canvas
+        image = QImage(vram_width_px, vram_height_px, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        # Calc palette offset based on the selected line (0, 16, 32, or 48)
+        line_offset = self.viewer_line_combo.currentIndex() * 16
+
+        # Loop through every tile (within each tile, loop through each pixel)
+        for tile_idx, pixel_indices in self.vram_tiles.items():
+            # Stop at the end of the VRAM space
+            if tile_idx >= 2048:
+                continue
+
+            # Calculate base coords for the top-left pixel of this 8x8 tile
+            tile_x = (tile_idx % 32) * 8
+            tile_y = (tile_idx // 32) * 8
+
+            for i, p_val in enumerate(pixel_indices):
+                # Index 0 is transparent (To-Do: Make displaying color 0 optional)
+                if p_val == 0:
+                    continue
+
+                # Pixel coordinates
+                px = tile_x + (i % 8)
+                py = tile_y + (i // 8)
+
+                # Fetch color from palette grid, using the line offset + pixel value
+                color_idx = line_offset + p_val
+                if color_idx < len(self.palette_colors):
+                    color = self.palette_colors[color_idx]
+                    image.setPixelColor(px, py, color)
+
+        # Scale up 2x
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(
+            vram_width_px * 2,
+            vram_height_px * 2,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation
+        )
+
+        self.vram_label.setPixmap(scaled_pixmap)
 
     def eval_art_capacity(self):
         # Disable Add button if we reach the 3-file limit
