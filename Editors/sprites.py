@@ -132,8 +132,37 @@ class SpriteEditor(QtW.QWidget):
         # *** MAPPINGS SUB-TAB ***
         mappings_tab = QtW.QWidget()
         mappings_layout = QtW.QHBoxLayout(mappings_tab)
-        mappings_layout.addWidget(QtW.QLabel("Sprite Mappings / DPLC Definitions"))
-        # Add mapping assembly file options here
+
+        # Buttons (I'm going to try to model this after Flex 2)
+        map_btn_layout = QtW.QVBoxLayout()
+        map_btn_layout.setSpacing(12)
+        map_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.btn_map_add = QtW.QPushButton("Add")
+        self.btn_map_load = QtW.QPushButton("Load")
+        self.btn_map_save = QtW.QPushButton("Save")
+
+        for btn in (self.btn_map_add, self.btn_map_load, self.btn_map_save):
+            btn.setFixedWidth(60)
+            map_btn_layout.addWidget(btn)
+
+        # Load/Save are disabled by default until mappings are added
+        self.btn_map_load.setEnabled(False)
+        self.btn_map_save.setEnabled(False)
+
+        mappings_layout.addLayout(map_btn_layout)
+
+        # Mapping/DPLC entry container
+        map_entries_scroll = QtW.QScrollArea()
+        map_entries_scroll.setWidgetResizable(True)
+
+        self.map_entries_widget = QtW.QWidget()
+        self.map_entries_layout = QtW.QVBoxLayout(self.map_entries_widget)
+        self.map_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        map_entries_scroll.setWidget(self.map_entries_widget)
+        mappings_layout.addWidget(map_entries_scroll, stretch=1)
+
         data_tabs.addTab(mappings_tab, "Mappings")
         # ************************
 
