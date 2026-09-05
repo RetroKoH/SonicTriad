@@ -20,6 +20,12 @@ class SpriteEditor(QtW.QWidget):
         self.pal_rows = []  # Stores (path_input, line_combo) for palette loading
         self.pal_line_combos = []
 
+        # VRAM art tile structure
+        self.vram_tiles = {}
+
+        # Used in the art file manager
+        self.art_rows = []  # Stores (path_input, offset_spin, comp_combo) for art loading
+
         self.init_ui()
 
     def init_ui(self):
@@ -83,19 +89,53 @@ class SpriteEditor(QtW.QWidget):
         # File-related elements here
         data_tabs = QtW.QTabWidget()
 
-        # Art sub-tab
+        # *** ART TILE SUB-TAB ***
         art_tab = QtW.QWidget()
-        art_layout = QtW.QVBoxLayout(art_tab)
-        art_layout.addWidget(QtW.QLabel("Art Tile Configuration"))
-        # Add file paths, load/save buttons, and scrollable controls here
+        art_layout = QtW.QHBoxLayout(art_tab)
+
+        # Buttons (Built off the Palettes Tab
+        art_btn_layout = QtW.QVBoxLayout()
+        art_btn_layout.setSpacing(12)
+        art_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.btn_art_add = QtW.QPushButton("Add")
+        self.btn_art_load = QtW.QPushButton("Load")
+        self.btn_art_save = QtW.QPushButton("Save")
+
+        for btn in (self.btn_art_add, self.btn_art_load, self.btn_art_save):
+            btn.setFixedWidth(60)
+            art_btn_layout.addWidget(btn)
+
+        # Load/Save are disabled by default until palettes are added
+        self.btn_art_load.setEnabled(False)
+        self.btn_art_save.setEnabled(False)
+
+        self.btn_art_add.clicked.connect(self.on_art_add_clicked)
+        self.btn_art_load.clicked.connect(self.on_art_load_clicked)
+
+        art_layout.addLayout(art_btn_layout)
+
+        # Dynamic entry container
+        art_entries_scroll = QtW.QScrollArea()
+        art_entries_scroll.setWidgetResizable(True)
+
+        self.art_entries_widget = QtW.QWidget()
+        self.art_entries_layout = QtW.QVBoxLayout(self.art_entries_widget)
+        self.art_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        art_entries_scroll.setWidget(self.art_entries_widget)
+        art_layout.addWidget(art_entries_scroll, stretch=1)
+
         data_tabs.addTab(art_tab, "Art")
+        # ************************
 
         # *** MAPPINGS SUB-TAB ***
         mappings_tab = QtW.QWidget()
-        mappings_layout = QtW.QVBoxLayout(mappings_tab)
+        mappings_layout = QtW.QHBoxLayout(mappings_tab)
         mappings_layout.addWidget(QtW.QLabel("Sprite Mappings / DPLC Definitions"))
         # Add mapping assembly file options here
         data_tabs.addTab(mappings_tab, "Mappings")
+        # ************************
 
         # *** PALETTES SUB-TAB ***
         palettes_tab = QtW.QWidget()
@@ -191,58 +231,6 @@ class SpriteEditor(QtW.QWidget):
         if file_path:
             self.add_palette_row(file_path)
 
-    def add_palette_row(self, file_path):
-        # Appends a 3-widget row to the right-hand panel for palette editing
-        row_widget = QtW.QWidget()
-        row_layout = QtW.QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Filepath text box
-        path_input = QtW.QLineEdit(file_path)
-
-        # Line count dropdown (1-4)
-        line_combo = QtW.QComboBox()
-        line_combo.addItem("1")    # Prime it with 1 for eval_pal_capacity
-        line_combo.setFixedWidth(50)
-
-        # Track the combo boxes in a list for evaluation
-        self.pal_line_combos.append(line_combo)
-        self.pal_rows.append((path_input, line_combo))
-
-        # Remove button
-        btn_remove = QtW.QPushButton("Remove")
-        btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(
-            lambda checked=False, _r=row_widget, _c=line_combo,
-                   _p=path_input: self.remove_palette_row(_r, _c, _p)
-        )
-
-        # Re-evaluate capacity whenever a dropdown value is changed
-        line_combo.currentIndexChanged.connect(self.eval_pal_capacity)
-
-        row_layout.addWidget(path_input, stretch=1)
-        row_layout.addWidget(line_combo)
-        row_layout.addWidget(btn_remove)
-
-        self.pal_entries_layout.addWidget(row_widget)
-
-        # Seems redundant, but we need an initial evaluation
-        self.eval_pal_capacity()
-
-    def remove_palette_row(self, row_widget, line_combo, path_input):
-        # Removes a palette widget row and re-evaluate capacity
-        if line_combo in self.pal_line_combos:
-            self.pal_line_combos.remove(line_combo)
-
-        row = (path_input, line_combo)
-        if row in self.pal_rows:
-            self.pal_rows.remove(row)
-
-        self.pal_entries_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
-
-        self.eval_pal_capacity()
-
     def on_pal_load_clicked(self, *args):
         """Loads palette(s) from the filepath(s) specified into the palette grid"""
         # Palette index to load the next color into
@@ -262,6 +250,7 @@ class SpriteEditor(QtW.QWidget):
                 current_index += num_lines * 16
                 continue
 
+            # Number of colors to load based on number of lines in the entry
             num_colors = num_lines * 16
 
             # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
@@ -293,6 +282,9 @@ class SpriteEditor(QtW.QWidget):
 
             except Exception as e:
                 print(f"Error loading palette {path.name}: {e}")
+                QtW.QMessageBox.warning(
+                    self, "Palette Load Error", f"Could not load palette file {path.name}:\n{str(e)}"
+                )
 
             # Increment color index for the next file load
             current_index += num_colors
@@ -351,6 +343,58 @@ class SpriteEditor(QtW.QWidget):
             # Advance color index for the next row file
             current_index += num_colors
 
+    def add_palette_row(self, file_path):
+        # Appends a 3-widget row to the right-hand panel for palette editing
+        row_widget = QtW.QWidget()
+        row_layout = QtW.QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Filepath text box
+        path_input = QtW.QLineEdit(file_path)
+
+        # Line count dropdown (1-4)
+        line_combo = QtW.QComboBox()
+        line_combo.addItem("1")    # Prime it with 1 for eval_pal_capacity
+        line_combo.setFixedWidth(50)
+
+        # Track the combo boxes in a list for evaluation
+        self.pal_line_combos.append(line_combo)
+        self.pal_rows.append((path_input, line_combo))
+
+        # Remove button
+        btn_remove = QtW.QPushButton("Remove")
+        btn_remove.setFixedWidth(50)
+        btn_remove.clicked.connect(
+            lambda checked=False, _r=row_widget, _c=line_combo,
+                   _p=path_input: self.remove_palette_row(_r, _c, _p)
+        )
+
+        # Re-evaluate capacity whenever a dropdown value is changed
+        line_combo.currentIndexChanged.connect(self.eval_pal_capacity)
+
+        row_layout.addWidget(path_input, stretch=1)
+        row_layout.addWidget(line_combo)
+        row_layout.addWidget(btn_remove)
+
+        self.pal_entries_layout.addWidget(row_widget)
+
+        # Seems redundant, but we need an initial evaluation
+        self.eval_pal_capacity()
+
+    def remove_palette_row(self, row_widget, line_combo, path_input):
+        # Removes a palette widget row and re-evaluate capacity
+        if line_combo in self.pal_line_combos:
+            self.pal_line_combos.remove(line_combo)
+
+        row = (path_input, line_combo)
+        if row in self.pal_rows:
+            self.pal_rows.remove(row)
+
+        self.pal_entries_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+        self.eval_pal_capacity()
+
     def eval_pal_capacity(self):
         # Sum the values of all active line combo boxes
         total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
@@ -379,3 +423,136 @@ class SpriteEditor(QtW.QWidget):
 
             combo.setCurrentText(str(current_val))
             combo.blockSignals(False)
+
+    def on_art_add_clicked(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # # Save dialog for new art file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "New Art Tile File", start_dir, "Art Tile Files (*.unc *.bin);;All Files (*)"
+        )
+
+        # If successful, create a new row under the art tab
+        if file_path:
+            self.add_art_row(file_path)
+
+    def on_art_load_clicked(self, *args):
+        """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
+        # Flush out VRAM
+        self.vram_tiles.clear()
+
+        # Loop for each filepath added
+        for path_input, offset_spin, comp_combo in self.art_rows:
+            file_path_str = path_input.text().strip()
+            if not file_path_str:
+                continue
+
+            # If the file doesn't exist, skip loading for this entry
+            path = Path(file_path_str)
+            if not path.exists():
+                print(f"Art file not found: {path}")
+                continue
+
+            # Starting VRAM tile index (0 to 2047) from the hex spinbox
+            current_tile_idx = offset_spin.value()
+
+            # Raw Binary art file (8x8 = 64px = 32 bytes per tile)
+            try:
+                with open(path, "rb") as f:
+                    raw_data = f.read()
+
+                # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
+                tile_count = len(raw_data) // 32
+
+                for _t in range(tile_count):
+                    tile_bytes = raw_data[_t * 32: (_t + 1) * 32]
+                    pixel_indices = []
+
+                    # Unpack 32 bytes into 64 palette indices (high nibble first)
+                    for byte in tile_bytes:
+                        pixel_indices.append((byte >> 4) & 0x0F)  # Left pixel
+                        pixel_indices.append(byte & 0x0F)  # Right pixel
+
+                    # Slot tile into virtual VRAM storage
+                    target_idx = current_tile_idx + _t
+                    if target_idx < 2048:
+                        self.vram_tiles[target_idx] = pixel_indices
+
+            except Exception as e:
+                print(f"Error loading art file {path.name}: {e}")
+                QtW.QMessageBox.warning(
+                    self, "Art Load Error", f"Could not load art file {path.name}:\n{str(e)}"
+                )
+
+        # Need to add a refresh here, once the art viewer is ready
+
+    def add_art_row(self, file_path):
+        # Cap sprite build at 3 art files
+        if len(self.art_rows) >= 3:
+            return
+
+        # Appends a 3-widget row to the right-hand panel for art editing
+        row_widget = QtW.QWidget()
+        row_layout = QtW.QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Filepath text box
+        path_input = QtW.QLineEdit(file_path)
+
+        # VRAM Tile Offset Input (Hexadecimal)
+        offset_spin = QtW.QSpinBox()
+        offset_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
+        offset_spin.setDisplayIntegerBase(16)  # Display in hex
+        offset_spin.setPrefix("$")
+        offset_spin.setToolTip("Starting VRAM Tile Index (Hex)")
+        offset_spin.setFixedWidth(70)
+
+        # Compression Dropdown
+        comp_combo = QtW.QComboBox()
+        comp_combo.addItems(["Uncompressed", "Nemesis", "Kosinski", "Kosinski-M"])
+        comp_combo.setToolTip("Compression Format")
+        comp_combo.setFixedWidth(110)
+
+        # Store elements in the tracking array
+        row_data = (path_input, offset_spin, comp_combo)
+        self.art_rows.append(row_data)
+
+        # Remove button
+        btn_remove = QtW.QPushButton("Remove")
+        btn_remove.setFixedWidth(50)
+        btn_remove.clicked.connect(
+            lambda checked=False, _r=row_widget, _data=row_data: self.remove_art_row(_r, _data)
+        )
+
+        row_layout.addWidget(path_input, stretch=1)
+        row_layout.addWidget(offset_spin)
+        row_layout.addWidget(comp_combo)
+        row_layout.addWidget(btn_remove)
+
+        self.art_entries_layout.addWidget(row_widget)
+
+        # Initial evaluation
+        self.eval_art_capacity()
+
+    def remove_art_row(self, row_widget, row_data):
+        # Removes an art widget row and re-evaluate capacity
+        if row_data in self.art_rows:
+            self.art_rows.remove(row_data)
+
+        self.art_entries_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+        self.eval_art_capacity()
+
+    def eval_art_capacity(self):
+        # Disable Add button if we reach the 3-file limit
+        is_full = (len(self.art_rows) >= 3)
+        self.btn_art_add.setDisabled(is_full)
+
+        # Load/Save are only enabled when art filepaths are present
+        has_rows = len(self.art_rows) > 0
+        self.btn_art_load.setEnabled(has_rows)
+        self.btn_art_save.setEnabled(has_rows)
