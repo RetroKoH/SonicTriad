@@ -7,6 +7,13 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QMimeData, QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPixmap, QFont, QDrag, QPainter, QPen
 
+""" Palette Length
+    Most palettes don't exceed 64 colors (due to the size of CRAM).
+    Some cycling palettes and color arrays exceed that length.
+    Because of this, Triad allows editing up to 256 colors.
+"""
+MAX_COLORS = 256
+
 # Improved MD Colors (Colors match the new color library)
 MDCOLOR_VALUES = [x * 255 // 7 for x in range(8)]
 # Output: [0x00, 0x24, 0x48, 0x6D, 0x91, 0xB6, 0xDA, 0xFF]
@@ -231,19 +238,19 @@ class ColorBox(QtW.QFrame):
             # Overwrite existing slots
             start = target_index
 
-            if max(len(self.editor.palette_colors), start + clipboard_length) > 128:
+            if max(len(self.editor.palette_colors), start + clipboard_length) > MAX_COLORS:
                 QtW.QMessageBox.warning(
                     self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the 128 color limit. " +
+                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
                     "Some colors will not be pasted."
                 )
 
-            # Paste over, and clamp palette at 128.
+            # Paste over, and clamp palette at max length.
             for _i, color in enumerate(self.editor.clipboard_colors):
                 idx = start + _i
                 if idx < len(self.editor.palette_colors):
                     self.editor.palette_colors[idx] = QColor(color)
-                elif idx < 128:
+                elif idx < MAX_COLORS:
                     self.editor.palette_colors.append(QColor(color))
                 else:
                     break
@@ -252,14 +259,14 @@ class ColorBox(QtW.QFrame):
             # Paste before or after the current index, shifting other colors accordingly
             start = target_index if mode == "before" else target_index + 1
 
-            if len(self.editor.palette_colors) + clipboard_length > 128:
+            if len(self.editor.palette_colors) + clipboard_length > MAX_COLORS:
                 QtW.QMessageBox.warning(
                     self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the 128 color limit. " +
+                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
                     "Some colors will not be pasted."
                 )
 
-            # Paste and shift, and clamp palette at 128.
+            # Paste and shift, and clamp palette length.
             for i, color in enumerate(self.editor.clipboard_colors):
                 self.editor.palette_colors.insert(start + i, QColor(color))
 
@@ -276,9 +283,9 @@ class ColorBox(QtW.QFrame):
         self.editor.unsaved_changes = True
 
     def insert_color(self, mode, target_index):
-        if len(self.editor.palette_colors) >= 128:
+        if len(self.editor.palette_colors) >= MAX_COLORS:
             QtW.QMessageBox.warning(
-                self, "Palette Size Restriction", "Palette cannot have more than 128 colors."
+                self, "Palette Size Restriction", f"Palette cannot have more than {MAX_COLORS} colors."
             )
             return
 
@@ -816,7 +823,7 @@ class GradientBuilderDialog(QtW.QDialog):
         # Length Configuration
         control_layout.addWidget(QtW.QLabel("Gradient Length:"), 2, 0)
         self.grad_length = QtW.QSpinBox()
-        self.grad_length.setRange(2, 128)
+        self.grad_length.setRange(2, MAX_COLORS)
         self.grad_length.setValue(8)
         self.grad_length.valueChanged.connect(self.update_gradient)
         control_layout.addWidget(self.grad_length, 2, 1)
@@ -1141,7 +1148,7 @@ class PaletteEditor(QtW.QWidget):
     def __init__(self):
         super().__init__()
 
-        # Internal Palette Storage (1 to 128 colors)
+        # Internal Palette Storage (1 to 256 colors)
         self.palette_colors = [QColor(0, 0, 0) for _i in range(64)]  # Default 64 colors
         self.boxes = []
 
@@ -1426,7 +1433,7 @@ class PaletteEditor(QtW.QWidget):
 
     def file_palette_new(self):
         count, ok = QtW.QInputDialog.getInt(
-            self, "New Palette", "Number of colors:", 16, 1, 128, 1
+            self, "New Palette", "Number of colors:", 16, 1, MAX_COLORS, 1
         )
 
         # Exit if the user cancels
@@ -1469,7 +1476,9 @@ class PaletteEditor(QtW.QWidget):
                     with open(project_json_path, "w", encoding="utf-8") as f:
                         json.dump(main_win.active_project_data, f, indent=2)
                 except Exception as e:
-                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}"
+                    )
 
         # Add path to the editor's list and select it for editing
         self.register_and_select_palette(path)
@@ -1646,7 +1655,7 @@ class PaletteEditor(QtW.QWidget):
     def edit_palette_resize(self):
         current_size = len(self.palette_colors)
         new_size, ok = QtW.QInputDialog.getInt(
-            self, "Resize Palette", "Number of colors:", current_size, 1, 128, 1
+            self, "Resize Palette", "Number of colors:", current_size, 1, MAX_COLORS, 1
         )
 
         # Exit if the user cancels or doesn't change the size
@@ -1824,12 +1833,12 @@ class PaletteEditor(QtW.QWidget):
         self.push_undo_state()  # Record state before applying gradient
         start = self.active_index
 
-        # Inject gradient colors, expanding palette up to 128 limit if necessary
+        # Inject gradient colors, expanding palette up to the limit if necessary
         for i, color in enumerate(gradient_colors):
             idx = start + i
             if idx < len(self.palette_colors):
                 self.palette_colors[idx] = color
-            elif idx < 128:
+            elif idx < MAX_COLORS:
                 self.palette_colors.append(color)
             else:
                 break
@@ -1941,7 +1950,7 @@ class PaletteEditor(QtW.QWidget):
         # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
         try:
             with open(path, "rb") as f:
-                data = f.read(256)  # Read up to 128 colors (256 bytes)
+                data = f.read(512)  # Read up to 256 colors (512 bytes)
                 for i in range(0, len(data), 2):
                     if i + 1 < len(data):
                         val = (data[i] << 8) | data[i + 1]
@@ -1991,8 +2000,8 @@ class PaletteEditor(QtW.QWidget):
         self.palette_changed.emit()
 
     def set_palette_data(self, colors: list[QColor]):
-        # Constrain to range [1, 128]; To-Do: Make the first line optional if palette_colors is already defined
-        self.palette_colors = colors[:128] if colors else [QColor(0, 0, 0)]
+        # Constrain to range [1, 256]; To-Do: Make the first line optional if palette_colors is already defined
+        self.palette_colors = colors[:MAX_COLORS] if colors else [QColor(0, 0, 0)]
         self.rebuild_grid()
         self.selected_indices = [0]
         self.active_index = 0
