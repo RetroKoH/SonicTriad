@@ -1,34 +1,12 @@
 from pathlib import Path
 
-from UI.themes import THEMES
-
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
-# Note: The editor uses inaccurate colors because I need to migrate constants and functions
-#       from the Palette Editor file its own file that both editors (and others) can access.
-
-class MiniColorBox(QtW.QFrame):
-    def __init__(self, index, color=QColor(0, 0, 0), size=18):
-        super().__init__()
-        self.index = index
-        self.color = color
-        self.setFixedSize(size, size)
-        self.update_style()
-
-    def set_color(self, color: QColor):
-        self.color = color
-        self.update_style()
-
-    def update_style(self):
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {self.color.name()};
-                border: none;
-                border-radius: 0px;
-            }}
-        """)
+from Constants import *
+from Editors.palettes import snap_to_md_colors
+from PaletteEditor.colorbox import MiniColorBox
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -286,18 +264,25 @@ class SpriteEditor(QtW.QWidget):
 
             num_colors = num_lines * 16
 
+            # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
             try:
                 with open(path, "rb") as f:
-                    # Load palette data (2 bytes per color word; 0B GR)
-                    # To-Do: implement MDCOLOR_VALUES from the Palette Editor
-                    data = f.read(num_colors * 2)
+                    data = f.read(num_colors * 2)   # Read 2 bytes for every color loaded
                     loaded_colors = []
                     for _i in range(0, len(data), 2):
                         if _i + 1 < len(data):
                             val = (data[_i] << 8) | data[_i + 1]
-                            _r = ((val >> 1) & 0x07) * 36
-                            _g = ((val >> 5) & 0x07) * 36
-                            _b = ((val >> 9) & 0x07) * 36
+
+                            # Extract 3-bit values (0-7)
+                            r_step = (val >> 1) & 0x07
+                            g_step = (val >> 5) & 0x07
+                            b_step = (val >> 9) & 0x07
+
+                            # Map them directly to color values
+                            _r = MDCOLOR_VALUES[r_step]
+                            _g = MDCOLOR_VALUES[g_step]
+                            _b = MDCOLOR_VALUES[b_step]
+
                             loaded_colors.append(QColor(_r, _g, _b))
 
                     # Slot colors into the palette grid
@@ -313,9 +298,9 @@ class SpriteEditor(QtW.QWidget):
             current_index += num_colors
 
         # Refresh the palette grid
-        for i, color in enumerate(self.palette_colors):
-            if i < len(self.palette_boxes):
-                self.palette_boxes[i].set_color(color)
+        for _i, color in enumerate(self.palette_colors):
+            if _i < len(self.palette_boxes):
+                self.palette_boxes[_i].set_color(color)
 
     def on_pal_save_clicked(self, *args):
         """Saves palette grid colors to the files specified in the file manager"""
@@ -346,14 +331,14 @@ class SpriteEditor(QtW.QWidget):
                         color = QColor(0, 0, 0)
 
                     # Convert color to compatible color components
-                    _r = round(color.red() / 255 * 7)
-                    _g = round(color.green() / 255 * 7)
-                    _b = round(color.blue() / 255 * 7)
+                    _r = snap_to_md_colors(color.red())
+                    _g = snap_to_md_colors(color.green())
+                    _b = snap_to_md_colors(color.blue())
 
-                    # Pack into the word format: 0000 BBB0 GGG0 RRR0
-                    word = (_b << 9) | (_g << 5) | (_r << 1)
-                    binary_data.append((word >> 8) & 0xFF)
-                    binary_data.append(word & 0xFF)
+                    # store in 0BGR format
+                    binary_data.append((_b << 1) & 0xFF)
+                    val = (_g << 5) | (_r << 1)
+                    binary_data.append(val & 0xFF)
 
                 # Write binary data to file (creates file if it doesn't exist)
                 with open(path, "wb") as f:
