@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor
 from Constants import *
 from Editors.palettes import snap_to_md_colors
 from PaletteEditor.colorbox import MiniColorBox
+from SpriteEditor.map_loading import load_mappings
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -28,6 +29,9 @@ class SpriteEditor(QtW.QWidget):
 
         # Used in the map file manager
         self.map_widget = None
+        self.map_path_input = None  # Tracks the mapping filepath input widget
+        self.map_frames = []    # Stores the parsed mapping data in memory
+        # Not loading DPLCs right now
 
         self.init_ui()
 
@@ -154,6 +158,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_save.setEnabled(False)
 
         self.btn_map_add.clicked.connect(self.on_map_add_clicked)
+        self.btn_map_load.clicked.connect(self.on_map_load_clicked)
 
         mappings_layout.addLayout(map_btn_layout)
 
@@ -690,6 +695,40 @@ class SpriteEditor(QtW.QWidget):
         if file_path:
             self.add_mapping_asset(file_path)
 
+    def on_map_load_clicked(self):
+        if not self.map_path_input:
+            return
+
+        # If a filepath is empty, don't load
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            return
+
+        # If the file doesn't exist, don't load
+        path = Path(file_path_str)
+        if not path.exists():
+            QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
+            return
+
+        # Flush out mapping frame data
+        self.map_frames.clear()
+
+        try:
+            # Load sprite mappings
+            load_mappings(self, path)
+
+            frame_count = len(self.map_frames)
+            QtW.QMessageBox.information(
+                self, "Mappings Loaded",
+                f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
+            )
+
+        except Exception as e:
+            print(f"Error loading mappings {path.name}: {e}")
+            QtW.QMessageBox.warning(
+                self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
+            )
+
     def add_mapping_asset(self, file_path):
         # Prevent adding multiple mapping assets
         if self.map_widget is not None:
@@ -704,7 +743,7 @@ class SpriteEditor(QtW.QWidget):
         map_row = QtW.QHBoxLayout(map_row_widget)
         map_row.setContentsMargins(0, 0, 0, 0)
 
-        map_path_input = QtW.QLineEdit(file_path)
+        self.map_path_input = QtW.QLineEdit(file_path)
 
         map_name_input = QtW.QLineEdit()
         map_name_input.setPlaceholderText("Map_")
@@ -714,7 +753,7 @@ class SpriteEditor(QtW.QWidget):
         btn_remove.setFixedWidth(50)
         btn_remove.clicked.connect(self.remove_mapping_asset)
 
-        map_row.addWidget(map_path_input, stretch=1)
+        map_row.addWidget(self.map_path_input, stretch=1)
         map_row.addWidget(map_name_input)
         map_row.addWidget(btn_remove)
 
@@ -780,6 +819,7 @@ class SpriteEditor(QtW.QWidget):
             self.map_entries_layout.removeWidget(self.map_widget)
             self.map_widget.deleteLater()
             self.map_widget = None
+            self.map_path_input = None
 
         # This re-enables the Add button
         self.eval_map_capacity()
