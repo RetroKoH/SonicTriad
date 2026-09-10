@@ -767,7 +767,7 @@ class PaletteEditor(QtW.QWidget):
         if target_index >= 0:
             self.pal_dropdown.setCurrentIndex(target_index)
 
-    def populate_palette_list(self, palette_paths: list[Path]):
+    def populate_palette_list(self, palette_paths):
         self.project_palette_paths = list(palette_paths)
 
         self.pal_dropdown.blockSignals(True)
@@ -792,7 +792,7 @@ class PaletteEditor(QtW.QWidget):
         if not self.active_palette_path and self.pal_dropdown.count() > 0:
             self.pal_dropdown.setCurrentIndex(0)
 
-    def on_pal_dropdown_changed(self, index: int):
+    def on_pal_dropdown_changed(self, index):
         # Ignore if only reverting/resetting UI
         if index == self._current_dropdown_index or index == -1:
             return
@@ -812,7 +812,7 @@ class PaletteEditor(QtW.QWidget):
 
         self.check_unsaved_changes(load_new_selection, revert_selection)
 
-    def load_palette_data(self, path: Path):
+    def load_palette_data(self, path):
         self.active_palette_path = path
         if not path.exists():
             return

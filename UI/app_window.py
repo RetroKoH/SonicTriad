@@ -109,8 +109,22 @@ class TriadApp(QtW.QMainWindow):
             # Resolve relative paths against disassembly directory
             rom_path = self.project_root_dir / self.active_project_data.get("rom_path", "")
 
+            # Import project's palettes for the Palette Editor
             raw_palettes = self.active_project_data.get("palettes", [])
             resolved_palettes = [self.project_root_dir / p for p in raw_palettes]
+
+            # Import project's sprite builds for the Sprite Editor
+            sprite_builds = self.active_project_data.get("sprites", {})
+            resolved_sprites = {}
+            for sprite_name, sprite_cfg in sprite_builds.items():
+                if isinstance(sprite_cfg, dict):
+                    cfg_copy = dict(sprite_cfg)
+                    for key in ("format", "vram_index", "palettes", "art", "mappings", "dplcs"):
+                        if key in cfg_copy and cfg_copy[key]:
+                            cfg_copy[key] = self.project_root_dir / cfg_copy[key]
+                    resolved_sprites[sprite_name] = cfg_copy
+                else:
+                    resolved_sprites[sprite_name] = sprite_cfg
 
             assembler = self.active_project_data.get("settings", {}).get("assembler", "N/A")
 
@@ -135,6 +149,7 @@ class TriadApp(QtW.QMainWindow):
 
             # Populate Palettes Tab dropdown with project files
             self.palette_editor.populate_palette_list(resolved_palettes)
+            self.sprite_editor.populate_sprite_list(resolved_sprites)
 
         except Exception as e:
             self.info_label.setText(f"Error loading project:\n{str(e)}")

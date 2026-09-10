@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
@@ -33,6 +34,11 @@ class SpriteEditor(QtW.QWidget):
         self.map_frames = []    # Stores the parsed mapping data in memory
         # Not loading DPLCs right now
 
+        self.active_sprite_build = None
+        self.project_sprite_builds = {}
+
+        self._current_dropdown_index = -1
+
         self.init_ui()
 
     def init_ui(self):
@@ -49,7 +55,6 @@ class SpriteEditor(QtW.QWidget):
 
         self.spr_dropdown = QtW.QComboBox()
         self.spr_dropdown.setToolTip("Select a sprite build from the active project")
-        #self.spr_dropdown.currentIndexChanged.connect(self.on_spr_dropdown_changed)
         spr_select_layout.addWidget(self.spr_dropdown, stretch=1)
 
         # File Buttons
@@ -63,6 +68,9 @@ class SpriteEditor(QtW.QWidget):
         btn_remove = QtW.QPushButton("Remove")
         for btn in (btn_new, btn_load, btn_save, btn_clear, btn_remove):
             btn.setFixedWidth(55)
+
+        # Connect the New button
+        btn_new.clicked.connect(self.file_sprite_new)
 
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_load)
@@ -309,6 +317,59 @@ class SpriteEditor(QtW.QWidget):
 
         main_layout.addLayout(right_panel, stretch=1)
 
+    def file_sprite_new(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+
+        # We are not actually going to create new files here.
+        # Instead, we're just creating a new sprite build definition.
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
+            QtW.QMessageBox.warning(self, "No Project", "Please load a project file first.")
+            return
+
+        # Prompt user for a new sprite build name (To-Do: Append a number to 'New Sprite' with repeated use)
+        sprite_name, ok = QtW.QInputDialog.getText(
+            self, "New Sprite Build", "Enter a name for the new sprite build:", text="New Sprite"
+        )
+
+        if not ok or not sprite_name.strip():
+            return
+
+        # Can this be done before the OK check?
+        sprite_name = sprite_name.strip()
+
+        # Ensure 'sprites' dictionary exists in project data
+        sprites_dict = main_win.active_project_data.setdefault("sprites", {})
+
+        # Prevent duplicate definitions
+        if sprite_name in sprites_dict:
+            QtW.QMessageBox.warning(self, "Duplicate Name", f"A sprite named '{sprite_name}' already exists.")
+            return
+
+        # Create an empty template for the sprite build
+        sprites_dict[sprite_name] = {
+            "format": 1,        # Sonic 1 by default
+            "vram_index": 0,    # Global starting VRAM index
+            "palettes": [],
+            "art": [],
+            "mappings": {},
+            "dplcs": {}
+        }
+
+        # Persist project JSON changes back to disk
+        project_json_path = getattr(main_win, "active_project_json_path", None)
+        if project_json_path and Path(project_json_path).exists():
+            try:
+                with open(project_json_path, "w", encoding="utf-8") as f:
+                    json.dump(main_win.active_project_data, f, indent=2)
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+        # Add to the UI dropdown and make it the active selection
+        self.spr_dropdown.addItem(sprite_name)
+        self.spr_dropdown.setCurrentText(sprite_name)
+
     def on_pal_add_clicked(self):
         # Get top-level window to access project file
         main_win = self.window()
@@ -324,7 +385,7 @@ class SpriteEditor(QtW.QWidget):
         if file_path:
             self.add_palette_row(file_path)
 
-    def on_pal_load_clicked(self, *args):
+    def on_pal_load_clicked(self):
         """Loads palette(s) from the filepath(s) specified into the palette grid"""
         # Palette index to load the next color into
         current_index = 0
@@ -392,7 +453,7 @@ class SpriteEditor(QtW.QWidget):
         # Refresh frame window
         self.render_sprite_frame()
 
-    def on_pal_save_clicked(self, *args):
+    def on_pal_save_clicked(self):
         """Saves palette grid colors to the files specified in the file manager"""
         current_index = 0
 
@@ -892,6 +953,31 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
 
+    def populate_sprite_list(self, sprite_builds):
+        self.project_sprite_builds = sprite_builds
+
+        self.spr_dropdown.blockSignals(True)
+        self.spr_dropdown.clear()
+
+        if not sprite_builds:
+            self.spr_dropdown.addItem("No Sprites Found", userData=None)
+            self.spr_dropdown.setEnabled(False)
+            self.spr_dropdown.blockSignals(False)
+            return
+
+        self.spr_dropdown.setEnabled(True)
+        for sprite_name, config in sprite_builds.items():
+            # Display key name in dropdown
+            self.spr_dropdown.addItem(sprite_name, userData=config)
+
+        # Silently reset the selection
+        self.spr_dropdown.setCurrentIndex(-1)
+        self.spr_dropdown.blockSignals(False)
+
+        # Only auto-load index 0 if we aren't currently targeting a specific sprite build
+        if not self.active_sprite_build and self.spr_dropdown.count() > 0:
+            self.spr_dropdown.setCurrentIndex(0)
+
     # Incomplete
     def render_sprite_frame(self):
         # 256x256 canvas with the center representing the sprite's X/Y origin pivot
@@ -982,3 +1068,28 @@ class SpriteEditor(QtW.QWidget):
         )
 
         self.sprite_label.setPixmap(scaled_pixmap)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
