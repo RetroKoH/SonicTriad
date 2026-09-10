@@ -284,7 +284,7 @@ class SpriteEditor(QtW.QWidget):
         viewer_controls.addWidget(QtW.QLabel("Preview Palette Line:"))
         self.viewer_line_combo = QtW.QComboBox()
         self.viewer_line_combo.addItems(["Line 0", "Line 1", "Line 2", "Line 3"])
-        self.viewer_line_combo.currentIndexChanged.connect(self.update_sprite_viewer)
+        self.viewer_line_combo.currentIndexChanged.connect(self.update_tile_viewer)
 
         viewer_controls.addWidget(self.viewer_line_combo)
         viewer_controls.addStretch()
@@ -384,7 +384,7 @@ class SpriteEditor(QtW.QWidget):
                 self.palette_boxes[_i].set_color(color)
 
         # Refresh VRAM after loading new palette
-        self.update_sprite_viewer()
+        self.update_tile_viewer()
         # Refresh frame window
         self.render_sprite_frame()
 
@@ -533,7 +533,7 @@ class SpriteEditor(QtW.QWidget):
         if file_path:
             self.add_art_row(file_path)
 
-    def on_art_load_clicked(self, *args):
+    def on_art_load_clicked(self):
         """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
         # Flush out VRAM
         self.vram_tiles.clear()
@@ -582,7 +582,7 @@ class SpriteEditor(QtW.QWidget):
                 )
 
         # Refresh VRAM after loading art
-        self.update_sprite_viewer()
+        self.update_tile_viewer()
         # Refresh frame window
         self.render_sprite_frame()
 
@@ -644,7 +644,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.eval_art_capacity()
 
-    def update_sprite_viewer(self):
+    def update_tile_viewer(self):
         """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
         from PyQt6.QtGui import QImage, QPixmap
 
@@ -666,8 +666,8 @@ class SpriteEditor(QtW.QWidget):
                 continue
 
             # Calculate base coords for the top-left pixel of this 8x8 tile
-            tile_x = (tile_idx % 32) * 8
-            tile_y = (tile_idx // 32) * 8
+            tile_x = (tile_idx % 16) * 8
+            tile_y = (tile_idx // 16) * 8
 
             for i, p_val in enumerate(pixel_indices):
                 # Index 0 is transparent (To-Do: Make displaying color 0 optional)
