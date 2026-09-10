@@ -757,8 +757,36 @@ class SpriteEditor(QtW.QWidget):
         map_row.addWidget(map_name_input)
         map_row.addWidget(btn_remove)
 
+        # Second row (Map Version, Macro save option, DPLC option)
+        map_row2_widget = QtW.QWidget()
+        map_row2 = QtW.QHBoxLayout(map_row2_widget)
+        map_row2.setContentsMargins(0, 0, 0, 0)
+
+        # Map Version Dropdown
+        self.map_dropdown = QtW.QComboBox()
+        self.map_dropdown.setToolTip("Select Spritemap Version (Based on game)")
+        # self.map_dropdown.currentIndexChanged.connect(self.on_map_dropdown_changed)
+
+        # Later, I will add a second Sonic 3K version (for Object DPLCs)
+        # An additional option will be included for user-defined formats
+        self.map_dropdown.addItem("Sonic 1", userData=None)
+        self.map_dropdown.addItem("Sonic 2", userData=None)
+        self.map_dropdown.addItem("Sonic 3K", userData=None)
+        map_row2.addWidget(self.map_dropdown, stretch=1)
+
+        # Spacer to separate the dropdown with the checkboxes
+        # Invisible spacer to keep textboxes aligned with the row above
+        spacer = QtW.QWidget()
+        spacer.setFixedWidth(60)
+        map_row2.addWidget(spacer)
+
+        # Save with Macros Checkbox (only affects saving to .asm)
+        macro_cb = QtW.QCheckBox("Save with MapMacros")
+        map_row2.addWidget(macro_cb)
+
         # DPLC Checkbox
         dplc_cb = QtW.QCheckBox("Enable DPLCs")
+        map_row2.addWidget(dplc_cb)
 
         # DPLC Row (Hidden by default)
         dplc_row_widget = QtW.QWidget()
@@ -778,13 +806,13 @@ class SpriteEditor(QtW.QWidget):
         dplc_name_input.setFixedWidth(100)
 
         # Invisible spacer to keep textboxes aligned with the row above
-        spacer = QtW.QWidget()
-        spacer.setFixedWidth(50)
+        spacer2 = QtW.QWidget()
+        spacer2.setFixedWidth(50)
 
         dplc_row.addWidget(dplc_path_input, stretch=1)
         dplc_row.addWidget(btn_dplc_browse)
         dplc_row.addWidget(dplc_name_input)
-        dplc_row.addWidget(spacer)
+        dplc_row.addWidget(spacer2)
 
         # Connect checkbox to visibility toggle
         dplc_row_widget.setVisible(False)
@@ -792,7 +820,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Assembly
         layout.addWidget(map_row_widget)
-        layout.addWidget(dplc_cb)
+        layout.addWidget(map_row2_widget)
         layout.addWidget(dplc_row_widget)
 
         self.map_entries_layout.addWidget(self.map_widget)
