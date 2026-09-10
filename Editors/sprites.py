@@ -2,7 +2,7 @@ from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QImage, QPixmap
 
 from Constants import *
 from Editors.palettes import snap_to_md_colors
@@ -77,14 +77,35 @@ class SpriteEditor(QtW.QWidget):
         sprite_box = QtW.QGroupBox("Sprite Viewer")
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
 
+        # Selection controls
+        frame_controls = QtW.QHBoxLayout()
+
+        # VRAM Address Selector controls
+        frame_controls.addWidget(QtW.QLabel("VRAM Address:"))
+        self.vram_spinbox = QtW.QSpinBox()
+        self.vram_spinbox.setRange(0, 2047)
+        self.vram_spinbox.valueChanged.connect(self.render_sprite_frame)
+        frame_controls.addWidget(self.vram_spinbox)
+
+        # Frame Selector controls
+        frame_controls.addWidget(QtW.QLabel("Frame Index:"))
+        self.frame_spinbox = QtW.QSpinBox()
+        self.frame_spinbox.setRange(0, 0)
+        self.frame_spinbox.valueChanged.connect(self.render_sprite_frame)
+        frame_controls.addWidget(self.frame_spinbox)
+        frame_controls.addStretch()
+        sprite_viewer.addLayout(frame_controls)
+
         # Scroll area in case built sprite extends past the window border
         scroll_area = QtW.QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_content = QtW.QWidget()
+        scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll_area.setStyleSheet("background-color: #282828;")
 
-        # Ensure that sprite mappings can render in this space (Add ruler widget)
+        self.sprite_label = QtW.QLabel()
+        self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        scroll_area.setWidget(scroll_content)
+        scroll_area.setWidget(self.sprite_label)
         sprite_viewer.addWidget(scroll_area)
 
         left_panel.addWidget(sprite_box, stretch=2)
@@ -362,8 +383,10 @@ class SpriteEditor(QtW.QWidget):
             if _i < len(self.palette_boxes):
                 self.palette_boxes[_i].set_color(color)
 
-        # Refresh VRAM after loading art
+        # Refresh VRAM after loading new palette
         self.update_sprite_viewer()
+        # Refresh frame window
+        self.render_sprite_frame()
 
     def on_pal_save_clicked(self, *args):
         """Saves palette grid colors to the files specified in the file manager"""
@@ -560,6 +583,8 @@ class SpriteEditor(QtW.QWidget):
 
         # Refresh VRAM after loading art
         self.update_sprite_viewer()
+        # Refresh frame window
+        self.render_sprite_frame()
 
     def add_art_row(self, file_path):
         # Cap sprite build at 3 art files
@@ -723,6 +748,9 @@ class SpriteEditor(QtW.QWidget):
                 f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
             )
 
+            # Refresh frame window
+            self.render_sprite_frame()
+
         except Exception as e:
             print(f"Error loading mappings {path.name}: {e}")
             QtW.QMessageBox.warning(
@@ -859,3 +887,91 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_add.setDisabled(has_asset)
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
+
+    # Incomplete
+    def render_sprite_frame(self):
+        # 256x256 canvas with the center representing the sprite's X/Y origin pivot
+        canvas_w, canvas_h = 256, 256
+        center_x, center_y = canvas_w // 2, canvas_h // 2
+
+        image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        # Draw an origin crosshair to easily see the sprite's anchor pivot
+        crosshair_color = QColor(255, 0, 255, 100)      # Make this an option (ColorPicker)
+        for _x in range(canvas_w): image.setPixelColor(_x, center_y, crosshair_color)
+        for _y in range(canvas_h): image.setPixelColor(center_x, _y, crosshair_color)
+
+        if not self.map_frames:
+            self.sprite_label.setPixmap(QPixmap.fromImage(image))
+            self.frame_spinbox.setRange(0, 0)
+            return
+
+        # Cap the spinbox to the number of loaded frames
+        self.frame_spinbox.setMaximum(len(self.map_frames) - 1)
+        frame_idx = self.frame_spinbox.value()
+
+        if frame_idx >= len(self.map_frames):
+            return
+
+        frame_data = self.map_frames[frame_idx]
+
+        # Iterate over every piece in this frame
+        for piece in frame_data:
+            start_tile = piece['tile']
+            wid = piece['width']
+            hgt = piece['height']
+            px_offset = piece['x']
+            py_offset = piece['y']
+            pal_line = piece['palette']
+            x_flip = piece['x_flip']
+            y_flip = piece['y_flip']
+
+            # Process tiles Top-to-Bottom, then Left-to-Right
+            for tx in range(wid):
+                for ty in range(hgt):
+                    tile_offset = (tx * hgt) + ty
+                    actual_tile_idx = start_tile + tile_offset
+
+                    # If flipped, the placement of the 8x8 blocks mirrors
+                    draw_tx = (wid - 1 - tx) if x_flip else tx
+                    draw_ty = (hgt - 1 - ty) if y_flip else ty
+
+                    if actual_tile_idx not in self.vram_tiles:
+                        continue
+
+                    pixel_indices = self.vram_tiles[actual_tile_idx]
+
+                    # Draw the 8x8 pixels for this specific tile (Should I pull from viewer instead?)
+                    for _py in range(8):
+                        for _px in range(8):
+                            p_val = pixel_indices[_py * 8 + _px]
+
+                            # 0 is always transparent (Make optional)
+                            if p_val == 0:
+                                continue
+
+                            # Flip the pixels within the 8x8 tile itself
+                            flip_px = (7 - _px) if x_flip else _px
+                            flip_py = (7 - _py) if y_flip else _py
+
+                            # Calculate absolute pixel coordinates on the canvas
+                            final_x = center_x + px_offset + (draw_tx * 8) + flip_px
+                            final_y = center_y + py_offset + (draw_ty * 8) + flip_py
+
+                            # Only draw if within bounds
+                            if 0 <= final_x < canvas_w and 0 <= final_y < canvas_h:
+                                color_idx = (pal_line * 16) + p_val
+                                if color_idx < len(self.palette_colors):
+                                    image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
+
+        # Scale up 2x for visibility (using FastTransformation to keep hard pixel edges)
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(
+            canvas_w * 2,
+            canvas_h * 2,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation
+        )
+
+        self.sprite_label.setPixmap(scaled_pixmap)
