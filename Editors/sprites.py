@@ -83,8 +83,12 @@ class SpriteEditor(QtW.QWidget):
         # VRAM Address Selector controls
         frame_controls.addWidget(QtW.QLabel("VRAM Address:"))
         self.vram_spinbox = QtW.QSpinBox()
-        self.vram_spinbox.setRange(0, 2047)
+        self.vram_spinbox.setRange(0, 2047)  # Cap at 2048 tiles
         self.vram_spinbox.valueChanged.connect(self.render_sprite_frame)
+        self.vram_spinbox.setDisplayIntegerBase(16)  # Display in hex
+        self.vram_spinbox.setPrefix("$")
+        self.vram_spinbox.setToolTip("Starting VRAM Tile Index (Hex)")
+        self.vram_spinbox.setFixedWidth(70)
         frame_controls.addWidget(self.vram_spinbox)
 
         # Frame Selector controls
@@ -100,7 +104,7 @@ class SpriteEditor(QtW.QWidget):
         scroll_area = QtW.QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        scroll_area.setStyleSheet("background-color: #282828;")
+        #scroll_area.setStyleSheet("background-color: #282828;") <- Might want to change color manually later
 
         self.sprite_label = QtW.QLabel()
         self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -294,7 +298,7 @@ class SpriteEditor(QtW.QWidget):
         self.vram_scroll = QtW.QScrollArea()
         self.vram_scroll.setWidgetResizable(True)
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.vram_scroll.setStyleSheet("background-color: #222222;")  # Dark backdrop
+        # vram_scroll.setStyleSheet("background-color: #282828;") <- Might want to change color manually later
 
         self.vram_label = QtW.QLabel()
         self.vram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -911,6 +915,9 @@ class SpriteEditor(QtW.QWidget):
         self.frame_spinbox.setMaximum(len(self.map_frames) - 1)
         frame_idx = self.frame_spinbox.value()
 
+        # Get starting VRAM tile location (base location that start_tile + tile_offset will go off from)
+        tile_idx = self.vram_spinbox.value()
+
         if frame_idx >= len(self.map_frames):
             return
 
@@ -931,7 +938,7 @@ class SpriteEditor(QtW.QWidget):
             for tx in range(wid):
                 for ty in range(hgt):
                     tile_offset = (tx * hgt) + ty
-                    actual_tile_idx = start_tile + tile_offset
+                    actual_tile_idx = tile_idx + start_tile + tile_offset
 
                     # If flipped, the placement of the 8x8 blocks mirrors
                     draw_tx = (wid - 1 - tx) if x_flip else tx
