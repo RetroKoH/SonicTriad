@@ -442,9 +442,10 @@ class SpriteEditor(QtW.QWidget):
             self.add_art_row(resolve_path_str(raw_path))
 
             # New row at the end of the list
-            path_input, offset_spin, comp_combo = self.art_rows[-1]
+            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
             offset_spin.setValue(art.get("offset", 0))
             comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
+            count_spin.setValue(0)  # Load all tiles by default
 
         if self.art_rows:
             self.file_art_load()
@@ -635,7 +636,7 @@ class SpriteEditor(QtW.QWidget):
         self.vram_tiles.clear()
 
         # Loop for each filepath added
-        for path_input, offset_spin, comp_combo in self.art_rows:
+        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
             file_path_str = path_input.text().strip()
             if not file_path_str:
                 continue
@@ -656,8 +657,19 @@ class SpriteEditor(QtW.QWidget):
 
                 # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
                 tile_count = len(raw_data) // 32
+                user_count = count_spin.value()
 
-                for _t in range(tile_count):
+                # Set load count (if 0, all tiles will be loaded)
+                if user_count == 0:
+                    tiles_to_load = tile_count
+                    # Move this to after the loading. If we hit 2048, we must truncate this count.
+                    count_spin.blockSignals(True)
+                    count_spin.setValue(tile_count)
+                    count_spin.blockSignals(False)
+                else:
+                    tiles_to_load = min(user_count, tile_count)     # User-defined load count
+
+                for _t in range(tiles_to_load):
                     tile_bytes = raw_data[_t * 32: (_t + 1) * 32]
                     pixel_indices = []
 
@@ -683,9 +695,14 @@ class SpriteEditor(QtW.QWidget):
         self.render_sprite_frame()
 
     def file_art_save(self):
-        for path_input, offset_spin, comp_combo in self.art_rows:
+        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
             file_path_str = path_input.text().strip()
             if not file_path_str:
+                continue
+
+            user_count = count_spin.value()
+            # If count is 0, don't save and check the next art file
+            if user_count == 0:
                 continue
 
             path = Path(file_path_str)
@@ -694,9 +711,10 @@ class SpriteEditor(QtW.QWidget):
 
             art_data = bytearray()
             tile_idx = current_tile_idx
+            tiles_saved = 0
 
-            # Collect tiles for this entry
-            while tile_idx < max_limit and tile_idx in self.vram_tiles:
+            # Collect tiles for this entry, up to requested tile count
+            while tile_idx < max_limit and tile_idx in self.vram_tiles and tiles_saved < user_count:
                 pixels = self.vram_tiles[tile_idx]
 
                 # Pack 64 pixel indices into 32 bytes
@@ -708,6 +726,7 @@ class SpriteEditor(QtW.QWidget):
 
                 # Increment tile
                 tile_idx += 1
+                tiles_saved += 1
 
             # If there is no art data to save, move on to the next file
             if not art_data:
@@ -865,21 +884,19 @@ class SpriteEditor(QtW.QWidget):
         if len(self.art_rows) >= 3:
             return
 
-        # Appends a 3-widget row to the right-hand panel for art editing
-        row_widget = QtW.QWidget()
-        row_layout = QtW.QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
+        artfile_widget = QtW.QWidget()
+
+        # Appends a file row and edit row to the right-hand panel for art editing
+        layout = QtW.QVBoxLayout(artfile_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Primary Art Row (Filepath and Compression)
+        art_row_widget = QtW.QWidget()
+        art_row = QtW.QHBoxLayout(art_row_widget)
+        art_row.setContentsMargins(0, 0, 0, 0)
 
         # Filepath text box
         path_input = QtW.QLineEdit(file_path)
-
-        # VRAM Tile Offset Input (Hexadecimal)
-        offset_spin = QtW.QSpinBox()
-        offset_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
-        offset_spin.setDisplayIntegerBase(16)  # Display in hex
-        offset_spin.setPrefix("$")
-        offset_spin.setToolTip("Starting VRAM Tile Index (Hex)")
-        offset_spin.setFixedWidth(70)
 
         # Compression Dropdown
         comp_combo = QtW.QComboBox()
@@ -887,23 +904,53 @@ class SpriteEditor(QtW.QWidget):
         comp_combo.setToolTip("Compression Format")
         comp_combo.setFixedWidth(110)
 
+        art_row.addWidget(path_input, stretch=1)
+        art_row.addWidget(comp_combo)
+
+        # Secondary Art Row (Location, Tile Count, Remove Button)
+        art_row2_widget = QtW.QWidget()
+        art_row2 = QtW.QHBoxLayout(art_row2_widget)
+        art_row2.setContentsMargins(0, 0, 0, 0)
+
+        # VRAM Location Input (Hexadecimal)
+        art_row2.addWidget(QtW.QLabel("VRAM Location:"))
+        artloc_spin = QtW.QSpinBox()
+        artloc_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
+        artloc_spin.setDisplayIntegerBase(16)  # Display in hex
+        artloc_spin.setPrefix("$")
+        artloc_spin.setToolTip("Starting VRAM Location (Hex)")
+        artloc_spin.setFixedWidth(70)
+        art_row2.addWidget(artloc_spin)
+
+        # Art Tile Count Input (Decimal)
+        art_row2.addWidget(QtW.QLabel("Tile Count:"))
+        count_spin = QtW.QSpinBox()
+        count_spin.setRange(0, 2047)  # Cap at 2048 tiles
+        count_spin.setToolTip("Number of Tiles" +
+                              "Load: Number to load (0 to load all).\n" +
+                              "Save: Number to save.")
+        count_spin.setFixedWidth(70)
+        art_row2.addWidget(count_spin)
+
         # Store elements in the tracking array
-        row_data = (path_input, offset_spin, comp_combo)
+        row_data = (path_input, artloc_spin, comp_combo, count_spin)
         self.art_rows.append(row_data)
 
         # Remove button
         btn_remove = QtW.QPushButton("Remove")
         btn_remove.setFixedWidth(50)
         btn_remove.clicked.connect(
-            lambda checked=False, _r=row_widget, _data=row_data: self.remove_art_row(_r, _data)
+            lambda checked=False, _r=artfile_widget, _data=row_data: self.remove_art_row(_r, _data)
         )
+        # Spacer absorbs all extra space before the Remove button
+        art_row2.addStretch()
+        art_row2.addWidget(btn_remove)
 
-        row_layout.addWidget(path_input, stretch=1)
-        row_layout.addWidget(offset_spin)
-        row_layout.addWidget(comp_combo)
-        row_layout.addWidget(btn_remove)
+        # Assembly
+        layout.addWidget(art_row_widget)
+        layout.addWidget(art_row2_widget)
 
-        self.art_entries_layout.addWidget(row_widget)
+        self.art_entries_layout.addWidget(artfile_widget)
 
         # Initial evaluation
         self.eval_art_capacity()
