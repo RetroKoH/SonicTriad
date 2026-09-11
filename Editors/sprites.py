@@ -69,8 +69,8 @@ class SpriteEditor(QtW.QWidget):
         for btn in (btn_new, btn_load, btn_save, btn_clear, btn_remove):
             btn.setFixedWidth(55)
 
-        # Connect the New button
         btn_new.clicked.connect(self.file_sprite_new)
+        btn_load.clicked.connect(self.file_sprite_load)
 
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_load)
@@ -369,6 +369,116 @@ class SpriteEditor(QtW.QWidget):
         # Add to the UI dropdown and make it the active selection
         self.spr_dropdown.addItem(sprite_name)
         self.spr_dropdown.setCurrentText(sprite_name)
+
+    def file_sprite_load(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
+            QtW.QMessageBox.warning(self, "No Project", "Please load a project file first.")
+            return
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Ensure 'sprites' dictionary exists and contains our sprite
+        sprites_dict = main_win.active_project_data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        sprite_data = sprites_dict[sprite_name]
+        if not sprite_data:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Helper to convert relative paths/Path objects to full absolute path strings
+        def resolve_path_str(raw_path):
+            if not raw_path:
+                return ""
+            p_obj = Path(raw_path)
+            if project_dir and not p_obj.is_absolute():
+                return str((start_dir / p_obj).resolve())
+            return str(p_obj)
+
+        # Clean out File Manager
+        while self.pal_rows:
+            path_input, line_combo = self.pal_rows[0]
+            self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
+
+        while self.art_rows:
+            path_input, offset_spin, comp_combo = self.art_rows[0]
+            self.remove_art_row(path_input.parentWidget(), self.art_rows[0])
+
+        if self.map_widget:
+            self.remove_mapping_asset()
+
+        # Set Global VRAM index and reset frame counter
+        self.vram_spinbox.setValue(sprite_data.get("vram_index", 0))
+        self.frame_spinbox.setValue(0)
+
+        # Fill out palette data and load palettes
+        for pal in sprite_data.get("palettes", []):
+            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
+            self.add_palette_row(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, line_combo = self.pal_rows[-1]
+            line_combo.setCurrentText(str(pal.get("length", 1)))
+
+        if self.pal_rows:
+            self.on_pal_load_clicked()
+
+        # Fill out art data and load art tiles
+        for art in sprite_data.get("art", []):
+            raw_path = art.get("path", "") if isinstance(art, dict) else art
+            self.add_art_row(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, offset_spin, comp_combo = self.art_rows[-1]
+            offset_spin.setValue(art.get("offset", 0))
+            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
+
+        if self.art_rows:
+            self.on_art_load_clicked()
+
+        # Fill out mapping data and load mappings
+        mappings = sprite_data.get("mappings", {})
+        dplcs = sprite_data.get("dplcs", {})
+
+        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
+        if map_path or mappings:
+            self.add_mapping_asset(resolve_path_str(map_path))
+
+            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
+            spr_format = sprite_data.get("format", 1)
+            self.map_dropdown.setCurrentIndex(spr_format - 1)
+
+            # Access layout widgets with findChildren to fill in information
+            if self.map_widget:
+                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
+                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+
+                for _l in line_edits:
+                    if _l.placeholderText() == "Map_":
+                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
+
+                # Toggle and populate DPLCs if enabled
+                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
+                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
+                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
+                    for _l in line_edits:
+                        if _l.placeholderText() == "DPLC Filepath...":
+                            _l.setText(resolve_path_str(dplcs.get("path", "")))
+                        elif _l.placeholderText() == "DPLC_":
+                            _l.setText(dplcs.get("label", ""))
+
+                self.on_map_load_clicked()
 
     def on_pal_add_clicked(self):
         # Get top-level window to access project file
@@ -806,15 +916,15 @@ class SpriteEditor(QtW.QWidget):
         try:
             # Load sprite mappings
             load_mappings(self, path)
-
             frame_count = len(self.map_frames)
+
+            # Refresh frame window
+            self.render_sprite_frame()
+
             QtW.QMessageBox.information(
                 self, "Mappings Loaded",
                 f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
             )
-
-            # Refresh frame window
-            self.render_sprite_frame()
 
         except Exception as e:
             print(f"Error loading mappings {path.name}: {e}")

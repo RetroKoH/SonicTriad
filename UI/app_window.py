@@ -1,4 +1,5 @@
 import json
+import copy
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
@@ -116,12 +117,23 @@ class TriadApp(QtW.QMainWindow):
             # Import project's sprite builds for the Sprite Editor
             sprite_builds = self.active_project_data.get("sprites", {})
             resolved_sprites = {}
+
             for sprite_name, sprite_cfg in sprite_builds.items():
                 if isinstance(sprite_cfg, dict):
-                    cfg_copy = dict(sprite_cfg)
-                    for key in ("format", "vram_index", "palettes", "art", "mappings", "dplcs"):
-                        if key in cfg_copy and cfg_copy[key]:
-                            cfg_copy[key] = self.project_root_dir / cfg_copy[key]
+                    cfg_copy = copy.deepcopy(sprite_cfg)
+
+                    # Resolve palette and art dict lists
+                    for key in ("palettes", "art"):
+                        if key in cfg_copy and isinstance(cfg_copy[key], list):
+                            for item in cfg_copy[key]:
+                                if isinstance(item, dict) and "path" in item and item["path"]:
+                                    item["path"] = self.project_root_dir / item["path"]
+                    # Resolve mapping & DPLC dicts
+                    for key in ("mappings", "dplcs"):
+                        if key in cfg_copy and isinstance(cfg_copy[key], dict):
+                            if "path" in cfg_copy[key] and cfg_copy[key]["path"]:
+                                cfg_copy[key]["path"] = self.project_root_dir / cfg_copy[key]["path"]
+
                     resolved_sprites[sprite_name] = cfg_copy
                 else:
                     resolved_sprites[sprite_name] = sprite_cfg
@@ -133,9 +145,6 @@ class TriadApp(QtW.QMainWindow):
 
             # To-Do: Relocate or remove the root directory string
             self.info_label.setText(
-                f"<b>Project:</b> {proj_name}<br><br>"
-                f"<b>Root:</b><br>{self.project_root_dir}<br><br>"
-
                 f"<b>ROM:</b><br>{rom_path.name}<br>"
                 f"<i>(Exists: {rom_path.exists()})</i><br><br>"
 
@@ -143,7 +152,9 @@ class TriadApp(QtW.QMainWindow):
             )
 
             self.drop_zone.setText(
-                f"Loaded Project: {proj_name}\n\n"
+                f"<b>Project:</b> {proj_name}<br>"
+                f"{self.project_root_dir}<br><br>"
+                
                 f"Drag & Drop another .json file to switch"
             )
 
