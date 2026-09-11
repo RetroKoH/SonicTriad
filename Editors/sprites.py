@@ -150,8 +150,9 @@ class SpriteEditor(QtW.QWidget):
         self.btn_art_load.setEnabled(False)
         self.btn_art_save.setEnabled(False)
 
-        self.btn_art_add.clicked.connect(self.on_art_add_clicked)
-        self.btn_art_load.clicked.connect(self.on_art_load_clicked)
+        self.btn_art_add.clicked.connect(self.file_art_new)
+        self.btn_art_load.clicked.connect(self.file_art_load)
+        self.btn_art_load.clicked.connect(self.file_art_save)
 
         art_layout.addLayout(art_btn_layout)
 
@@ -190,8 +191,8 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(False)
         self.btn_map_save.setEnabled(False)
 
-        self.btn_map_add.clicked.connect(self.on_map_add_clicked)
-        self.btn_map_load.clicked.connect(self.on_map_load_clicked)
+        self.btn_map_add.clicked.connect(self.file_mapping_new)
+        self.btn_map_load.clicked.connect(self.file_mapping_load)
 
         mappings_layout.addLayout(map_btn_layout)
 
@@ -231,9 +232,9 @@ class SpriteEditor(QtW.QWidget):
         self.btn_pal_load.setEnabled(False)
         self.btn_pal_save.setEnabled(False)
 
-        self.btn_pal_add.clicked.connect(self.on_pal_add_clicked)
-        self.btn_pal_load.clicked.connect(self.on_pal_load_clicked)
-        self.btn_pal_save.clicked.connect(self.on_pal_save_clicked)
+        self.btn_pal_add.clicked.connect(self.file_palette_new)
+        self.btn_pal_load.clicked.connect(self.file_palette_load)
+        self.btn_pal_save.clicked.connect(self.file_palette_save)
 
         palettes_layout.addLayout(pal_btn_layout)
 
@@ -317,6 +318,7 @@ class SpriteEditor(QtW.QWidget):
 
         main_layout.addLayout(right_panel, stretch=1)
 
+    # File Manager
     def file_sprite_new(self):
         # Get top-level window to access project file
         main_win = self.window()
@@ -432,7 +434,7 @@ class SpriteEditor(QtW.QWidget):
             line_combo.setCurrentText(str(pal.get("length", 1)))
 
         if self.pal_rows:
-            self.on_pal_load_clicked()
+            self.file_palette_load()
 
         # Fill out art data and load art tiles
         for art in sprite_data.get("art", []):
@@ -445,7 +447,7 @@ class SpriteEditor(QtW.QWidget):
             comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
 
         if self.art_rows:
-            self.on_art_load_clicked()
+            self.file_art_load()
 
         # Fill out mapping data and load mappings
         mappings = sprite_data.get("mappings", {})
@@ -478,9 +480,9 @@ class SpriteEditor(QtW.QWidget):
                         elif _l.placeholderText() == "DPLC_":
                             _l.setText(dplcs.get("label", ""))
 
-                self.on_map_load_clicked()
+                self.file_mapping_load()
 
-    def on_pal_add_clicked(self):
+    def file_palette_new(self):
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -495,7 +497,7 @@ class SpriteEditor(QtW.QWidget):
         if file_path:
             self.add_palette_row(file_path)
 
-    def on_pal_load_clicked(self):
+    def file_palette_load(self):
         """Loads palette(s) from the filepath(s) specified into the palette grid"""
         # Palette index to load the next color into
         current_index = 0
@@ -563,7 +565,7 @@ class SpriteEditor(QtW.QWidget):
         # Refresh frame window
         self.render_sprite_frame()
 
-    def on_pal_save_clicked(self):
+    def file_palette_save(self):
         """Saves palette grid colors to the files specified in the file manager"""
         current_index = 0
 
@@ -612,6 +614,171 @@ class SpriteEditor(QtW.QWidget):
             # Advance color index for the next row file
             current_index += num_colors
 
+    def file_art_new(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new art file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "New Art Tile File", start_dir, "Art Tile Files (*.unc *.bin);;All Files (*)"
+        )
+
+        # If successful, create a new row under the art tab
+        if file_path:
+            self.add_art_row(file_path)
+
+    def file_art_load(self):
+        """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
+        # Flush out VRAM
+        self.vram_tiles.clear()
+
+        # Loop for each filepath added
+        for path_input, offset_spin, comp_combo in self.art_rows:
+            file_path_str = path_input.text().strip()
+            if not file_path_str:
+                continue
+
+            # If the file doesn't exist, skip loading for this entry
+            path = Path(file_path_str)
+            if not path.exists():
+                print(f"Art file not found: {path}")
+                continue
+
+            # Starting VRAM tile index (0 to 2047) from the hex spinbox
+            current_tile_idx = offset_spin.value()
+
+            # Raw Binary art file (8x8 = 64px = 32 bytes per tile)
+            try:
+                with open(path, "rb") as f:
+                    raw_data = f.read()
+
+                # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
+                tile_count = len(raw_data) // 32
+
+                for _t in range(tile_count):
+                    tile_bytes = raw_data[_t * 32: (_t + 1) * 32]
+                    pixel_indices = []
+
+                    # Unpack 32 bytes into 64 palette indices (high nibble first)
+                    for byte in tile_bytes:
+                        pixel_indices.append((byte >> 4) & 0x0F)  # Left pixel
+                        pixel_indices.append(byte & 0x0F)  # Right pixel
+
+                    # Slot tile into virtual VRAM storage
+                    target_idx = current_tile_idx + _t
+                    if target_idx < 2048:
+                        self.vram_tiles[target_idx] = pixel_indices
+
+            except Exception as e:
+                print(f"Error loading art file {path.name}: {e}")
+                QtW.QMessageBox.warning(
+                    self, "Art Load Error", f"Could not load art file {path.name}:\n{str(e)}"
+                )
+
+        # Refresh VRAM after loading art
+        self.update_tile_viewer()
+        # Refresh frame window
+        self.render_sprite_frame()
+
+    def file_art_save(self):
+        for path_input, offset_spin, comp_combo in self.art_rows:
+            file_path_str = path_input.text().strip()
+            if not file_path_str:
+                continue
+
+            path = Path(file_path_str)
+            current_tile_idx = offset_spin.value()
+            max_limit = 2048
+
+            art_data = bytearray()
+            tile_idx = current_tile_idx
+
+            # Collect tiles for this entry
+            while tile_idx < max_limit and tile_idx in self.vram_tiles:
+                pixels = self.vram_tiles[tile_idx]
+
+                # Pack 64 pixel indices into 32 bytes
+                for i in range(0, 64, 2):
+                    left_pixel = pixels[i] & 0x0F
+                    right_pixel = pixels[i + 1] & 0x0F
+                    byte_val = (left_pixel << 4) | right_pixel
+                    art_data.append(byte_val)
+
+                # Increment tile
+                tile_idx += 1
+
+            # If there is no art data to save, move on to the next file
+            if not art_data:
+                continue
+
+            try:
+                # Create directory structure if saving to a new path
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(path, "wb") as f:
+                    f.write(art_data)
+
+            except Exception as e:
+                print(f"Error saving art tile file {path.name}: {e}")
+                QtW.QMessageBox.warning(
+                    self, "Art Save Error", f"Could not save art file {path.name}:\n{str(e)}"
+                )
+
+    def file_mapping_new(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new mapping file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "New Mapping File", start_dir, "Mapping Files (*.asm *.bin);;All Files (*)"
+        )
+
+        # If successful, create new widgets under the mappings tab
+        if file_path:
+            self.add_mapping_asset(file_path)
+
+    def file_mapping_load(self):
+        if not self.map_path_input:
+            return
+
+        # If a filepath is empty, don't load
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            return
+
+        # If the file doesn't exist, don't load
+        path = Path(file_path_str)
+        if not path.exists():
+            QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
+            return
+
+        # Flush out mapping frame data
+        self.map_frames.clear()
+
+        try:
+            # Load sprite mappings
+            load_mappings(self, path)
+            frame_count = len(self.map_frames)
+
+            # Refresh frame window
+            self.render_sprite_frame()
+
+            QtW.QMessageBox.information(
+                self, "Mappings Loaded",
+                f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
+            )
+
+        except Exception as e:
+            print(f"Error loading mappings {path.name}: {e}")
+            QtW.QMessageBox.warning(
+                self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
+            )
+
+    # File Manager Functions
     def add_palette_row(self, file_path):
         # Appends a 3-widget row to the right-hand panel for palette editing
         row_widget = QtW.QWidget()
@@ -693,74 +860,6 @@ class SpriteEditor(QtW.QWidget):
             combo.setCurrentText(str(current_val))
             combo.blockSignals(False)
 
-    def on_art_add_clicked(self):
-        # Get top-level window to access project file
-        main_win = self.window()
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
-
-        # Save dialog for new art file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "New Art Tile File", start_dir, "Art Tile Files (*.unc *.bin);;All Files (*)"
-        )
-
-        # If successful, create a new row under the art tab
-        if file_path:
-            self.add_art_row(file_path)
-
-    def on_art_load_clicked(self):
-        """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
-        # Flush out VRAM
-        self.vram_tiles.clear()
-
-        # Loop for each filepath added
-        for path_input, offset_spin, comp_combo in self.art_rows:
-            file_path_str = path_input.text().strip()
-            if not file_path_str:
-                continue
-
-            # If the file doesn't exist, skip loading for this entry
-            path = Path(file_path_str)
-            if not path.exists():
-                print(f"Art file not found: {path}")
-                continue
-
-            # Starting VRAM tile index (0 to 2047) from the hex spinbox
-            current_tile_idx = offset_spin.value()
-
-            # Raw Binary art file (8x8 = 64px = 32 bytes per tile)
-            try:
-                with open(path, "rb") as f:
-                    raw_data = f.read()
-
-                # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
-                tile_count = len(raw_data) // 32
-
-                for _t in range(tile_count):
-                    tile_bytes = raw_data[_t * 32: (_t + 1) * 32]
-                    pixel_indices = []
-
-                    # Unpack 32 bytes into 64 palette indices (high nibble first)
-                    for byte in tile_bytes:
-                        pixel_indices.append((byte >> 4) & 0x0F)  # Left pixel
-                        pixel_indices.append(byte & 0x0F)  # Right pixel
-
-                    # Slot tile into virtual VRAM storage
-                    target_idx = current_tile_idx + _t
-                    if target_idx < 2048:
-                        self.vram_tiles[target_idx] = pixel_indices
-
-            except Exception as e:
-                print(f"Error loading art file {path.name}: {e}")
-                QtW.QMessageBox.warning(
-                    self, "Art Load Error", f"Could not load art file {path.name}:\n{str(e)}"
-                )
-
-        # Refresh VRAM after loading art
-        self.update_tile_viewer()
-        # Refresh frame window
-        self.render_sprite_frame()
-
     def add_art_row(self, file_path):
         # Cap sprite build at 3 art files
         if len(self.art_rows) >= 3:
@@ -819,57 +918,6 @@ class SpriteEditor(QtW.QWidget):
 
         self.eval_art_capacity()
 
-    def update_tile_viewer(self):
-        """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
-        from PyQt6.QtGui import QImage, QPixmap
-
-        # size: 16 x 128 tiles
-        vram_width_px = 16 * 8
-        vram_height_px = 128 * 8
-
-        # Transparent ARGB canvas
-        image = QImage(vram_width_px, vram_height_px, QImage.Format.Format_ARGB32)
-        image.fill(Qt.GlobalColor.transparent)
-
-        # Calc palette offset based on the selected line (0, 16, 32, or 48)
-        line_offset = self.viewer_line_combo.currentIndex() * 16
-
-        # Loop through every tile (within each tile, loop through each pixel)
-        for tile_idx, pixel_indices in self.vram_tiles.items():
-            # Stop at the end of the VRAM space
-            if tile_idx >= 2048:
-                continue
-
-            # Calculate base coords for the top-left pixel of this 8x8 tile
-            tile_x = (tile_idx % 16) * 8
-            tile_y = (tile_idx // 16) * 8
-
-            for i, p_val in enumerate(pixel_indices):
-                # Index 0 is transparent (To-Do: Make displaying color 0 optional)
-                if p_val == 0:
-                    continue
-
-                # Pixel coordinates
-                px = tile_x + (i % 8)
-                py = tile_y + (i // 8)
-
-                # Fetch color from palette grid, using the line offset + pixel value
-                color_idx = line_offset + p_val
-                if color_idx < len(self.palette_colors):
-                    color = self.palette_colors[color_idx]
-                    image.setPixelColor(px, py, color)
-
-        # Scale up 2x
-        pixmap = QPixmap.fromImage(image)
-        scaled_pixmap = pixmap.scaled(
-            vram_width_px * 2,
-            vram_height_px * 2,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation
-        )
-
-        self.vram_label.setPixmap(scaled_pixmap)
-
     def eval_art_capacity(self):
         # Disable Add button if we reach the 3-file limit
         is_full = (len(self.art_rows) >= 3)
@@ -879,58 +927,6 @@ class SpriteEditor(QtW.QWidget):
         has_rows = len(self.art_rows) > 0
         self.btn_art_load.setEnabled(has_rows)
         self.btn_art_save.setEnabled(has_rows)
-
-    def on_map_add_clicked(self):
-        # Get top-level window to access project file
-        main_win = self.window()
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
-
-        # Save dialog for new mapping file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "New Mapping File", start_dir, "Mapping Files (*.asm *.bin);;All Files (*)"
-        )
-
-        # If successful, create new widgets under the mappings tab
-        if file_path:
-            self.add_mapping_asset(file_path)
-
-    def on_map_load_clicked(self):
-        if not self.map_path_input:
-            return
-
-        # If a filepath is empty, don't load
-        file_path_str = self.map_path_input.text().strip()
-        if not file_path_str:
-            return
-
-        # If the file doesn't exist, don't load
-        path = Path(file_path_str)
-        if not path.exists():
-            QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
-            return
-
-        # Flush out mapping frame data
-        self.map_frames.clear()
-
-        try:
-            # Load sprite mappings
-            load_mappings(self, path)
-            frame_count = len(self.map_frames)
-
-            # Refresh frame window
-            self.render_sprite_frame()
-
-            QtW.QMessageBox.information(
-                self, "Mappings Loaded",
-                f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
-            )
-
-        except Exception as e:
-            print(f"Error loading mappings {path.name}: {e}")
-            QtW.QMessageBox.warning(
-                self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
-            )
 
     def add_mapping_asset(self, file_path):
         # Prevent adding multiple mapping assets
@@ -1063,6 +1059,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
 
+    # Rendering functions
     def populate_sprite_list(self, sprite_builds):
         self.project_sprite_builds = sprite_builds
 
@@ -1087,6 +1084,57 @@ class SpriteEditor(QtW.QWidget):
         # Only auto-load index 0 if we aren't currently targeting a specific sprite build
         if not self.active_sprite_build and self.spr_dropdown.count() > 0:
             self.spr_dropdown.setCurrentIndex(0)
+
+    def update_tile_viewer(self):
+        """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
+        from PyQt6.QtGui import QImage, QPixmap
+
+        # size: 16 x 128 tiles
+        vram_width_px = 16 * 8
+        vram_height_px = 128 * 8
+
+        # Transparent ARGB canvas
+        image = QImage(vram_width_px, vram_height_px, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        # Calc palette offset based on the selected line (0, 16, 32, or 48)
+        line_offset = self.viewer_line_combo.currentIndex() * 16
+
+        # Loop through every tile (within each tile, loop through each pixel)
+        for tile_idx, pixel_indices in self.vram_tiles.items():
+            # Stop at the end of the VRAM space
+            if tile_idx >= 2048:
+                continue
+
+            # Calculate base coords for the top-left pixel of this 8x8 tile
+            tile_x = (tile_idx % 16) * 8
+            tile_y = (tile_idx // 16) * 8
+
+            for i, p_val in enumerate(pixel_indices):
+                # Index 0 is transparent (To-Do: Make displaying color 0 optional)
+                if p_val == 0:
+                    continue
+
+                # Pixel coordinates
+                px = tile_x + (i % 8)
+                py = tile_y + (i // 8)
+
+                # Fetch color from palette grid, using the line offset + pixel value
+                color_idx = line_offset + p_val
+                if color_idx < len(self.palette_colors):
+                    color = self.palette_colors[color_idx]
+                    image.setPixelColor(px, py, color)
+
+        # Scale up 2x
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(
+            vram_width_px * 2,
+            vram_height_px * 2,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation
+        )
+
+        self.vram_label.setPixmap(scaled_pixmap)
 
     # Incomplete
     def render_sprite_frame(self):
@@ -1178,28 +1226,3 @@ class SpriteEditor(QtW.QWidget):
         )
 
         self.sprite_label.setPixmap(scaled_pixmap)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
