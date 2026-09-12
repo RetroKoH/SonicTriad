@@ -9,6 +9,7 @@ from Constants import *
 from Editors.palettes import snap_to_md_colors
 from PaletteEditor.colorbox import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
+from SpriteEditor.map_saving import save_mappings
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -33,6 +34,9 @@ class SpriteEditor(QtW.QWidget):
         self.map_path_input = None  # Tracks the mapping filepath input widget
         self.map_frames = []    # Stores the parsed mapping data in memory
         # Not loading DPLCs right now
+
+        # Frame labels (I'll work this into map_frames later)
+        self.frame_labels = []
 
         self.active_sprite_build = None
         self.project_sprite_builds = {}
@@ -193,6 +197,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.btn_map_add.clicked.connect(self.file_mapping_new)
         self.btn_map_load.clicked.connect(self.file_mapping_load)
+        self.btn_map_save.clicked.connect(self.file_mapping_save)
 
         mappings_layout.addLayout(map_btn_layout)
 
@@ -779,22 +784,50 @@ class SpriteEditor(QtW.QWidget):
         self.map_frames.clear()
 
         try:
-            # Load sprite mappings
-            load_mappings(self, path)
-            frame_count = len(self.map_frames)
+            # Load sprite mappings based on selected version
+            map_version = self.map_dropdown.currentIndex() + 1
+            load_mappings(self, path, map_version)
 
             # Refresh frame window
             self.render_sprite_frame()
 
             QtW.QMessageBox.information(
                 self, "Mappings Loaded",
-                f"Successfully loaded {frame_count} frames from {path.name}.\n\n(DPLCs unavailable.)"
+                f"Successfully loaded {len(self.map_frames)} frames from {path.name}.\n\n(DPLCs unavailable.)"
             )
 
         except Exception as e:
             print(f"Error loading mappings {path.name}: {e}")
             QtW.QMessageBox.warning(
                 self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
+            )
+
+    def file_mapping_save(self):
+        if not self.map_path_input or not self.map_path_input:
+            QtW.QMessageBox.warning(self, "Save Error", "No mapping asset configured.")
+            return
+
+        # If a filepath is empty, don't load
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            QtW.QMessageBox.warning(self, "Save Error", "Please specify a valid mapping filepath.")
+            return
+
+        path = Path(file_path_str)
+
+        try:
+            # Load sprite mappings
+            save_mappings(self, path)
+
+            QtW.QMessageBox.information(
+                self, "Mappings Saved",
+                f"Successfully saved {len(self.map_frames)} frames to {path.name}."
+            )
+
+        except Exception as e:
+            print(f"Error loading mappings {path.name}: {e}")
+            QtW.QMessageBox.warning(
+                self, "Mapping Save Error", f"Could not save mappings to {path.name}:\n{str(e)}"
             )
 
     # File Manager Functions
@@ -991,16 +1024,16 @@ class SpriteEditor(QtW.QWidget):
 
         self.map_path_input = QtW.QLineEdit(file_path)
 
-        map_name_input = QtW.QLineEdit()
-        map_name_input.setPlaceholderText("Map_")
-        map_name_input.setFixedWidth(100)
+        self.map_name_input = QtW.QLineEdit()
+        self.map_name_input.setPlaceholderText("Map_")
+        self.map_name_input.setFixedWidth(100)
 
         btn_remove = QtW.QPushButton("Remove")
         btn_remove.setFixedWidth(50)
         btn_remove.clicked.connect(self.remove_mapping_asset)
 
         map_row.addWidget(self.map_path_input, stretch=1)
-        map_row.addWidget(map_name_input)
+        map_row.addWidget(self.map_name_input)
         map_row.addWidget(btn_remove)
 
         # Second row (Map Version, Macro save option, DPLC option)
@@ -1027,8 +1060,8 @@ class SpriteEditor(QtW.QWidget):
         map_row2.addWidget(spacer)
 
         # Save with Macros Checkbox (only affects saving to .asm)
-        macro_cb = QtW.QCheckBox("Save with MapMacros")
-        map_row2.addWidget(macro_cb)
+        self.macro_cb = QtW.QCheckBox("Save with MapMacros")
+        map_row2.addWidget(self.macro_cb)
 
         # DPLC Checkbox
         dplc_cb = QtW.QCheckBox("Enable DPLCs")

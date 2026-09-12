@@ -1,27 +1,5 @@
 import PyQt6.QtWidgets as QtW
-
-# In the future, additional user-defined formats will be possible
-# For that reason, this is stored outside of the loading functions
-MAP_FORMATS = {
-	1: {
-		'header_size': 1,
-		'piece_size': 5,
-		'attr_bytes': 2,
-		'x_bytes': 1
-	},
-	2: {
-		'header_size': 2,
-		'piece_size': 8,
-		'attr_bytes': 4,
-		'x_bytes': 2
-	},
-	3: {
-		'header_size': 2,
-		'piece_size': 6,
-		'attr_bytes': 2,
-		'x_bytes': 2
-	}
-}
+from Editors.SpriteEditor.map_attributes import MAP_FORMATS
 
 # Top-level spritemap loader
 def load_mappings(editor, path, map_version=1):
@@ -46,7 +24,7 @@ def load_mappings_asm(editor, path, map_version=1):
         split_asm_line(line)[1].startswith('mappingstableentry')
         for line in contents
     ):
-        # Jump to new loading function
+        # Jump to macro loading function
         load_mappings_macro(editor, contents)
         return
 
@@ -245,6 +223,11 @@ def load_mappings_asm(editor, path, map_version=1):
         # Append to map frames data
         editor.map_frames.append(frame_data)
 
+    # Insert top-level map label to text widget
+    editor.map_name_input.setText(map_label)
+    # Store frame labels
+    editor.frame_labels = frame_labels
+
 def load_mappings_macro(editor, contents):
     map_label = None    # Top-level map label
     frame_labels = []   # Ordered frame labels from the pointer table
@@ -379,7 +362,7 @@ def load_mappings_macro(editor, contents):
                 )
                 continue
 
-            # Append raw piece data
+            # Append raw piece data (Includes label and actual data)
             frame_data.append({
                 'x': x,
                 'y': y,
@@ -389,7 +372,8 @@ def load_mappings_macro(editor, contents):
                 'x_flip': x_flip,
                 'y_flip': y_flip,
                 'palette': palette,
-                'priority': priority
+                'priority': priority,
+                'art_tile_2p': 0
             })
 
         # The final frame may reach EOF without encountering another spriteHeader
@@ -402,6 +386,12 @@ def load_mappings_macro(editor, contents):
         # Append to map frames data
         editor.map_frames.append(frame_data)
 
+        # Insert top-level map label to text widget and set Macro checkbox
+        editor.map_name_input.setText(map_label)
+        editor.macro_cb.setChecked(True)
+        # Store frame labels
+        editor.frame_labels = frame_labels
+
 def load_mappings_bin(editor, path, map_version=1):
     # Store all bytes from the binary file in a list
     with open(path, "rb") as f:
@@ -413,6 +403,11 @@ def load_mappings_bin(editor, path, map_version=1):
             editor, "Mapping Load Error", "File is too short to contain a mapping pointer table."
         )
         return
+
+    # Generated labels in case we want to save to .ASM
+    stem = path.stem.split(' ', 1)[0][:8]  # Create a top-level map label (Up to 8 char, stops at spaces)
+    map_label = f"Map_{stem}"
+    frame_labels = []  # Create ordered frame labels
 
     # Mappings begin with an array of word-length offsets for each frame.
     # Because the first mapping is expected immediately after this array,
@@ -471,6 +466,14 @@ def load_mappings_bin(editor, path, map_version=1):
 
         # Append to map frames data
         editor.map_frames.append(frame_data)
+
+        # Add a generic frame counter label
+        frame_labels.append(f"M_{stem}_Frame{_i}")
+
+    # Insert top-level map label to text widget
+    editor.map_name_input.setText(map_label)
+    # Store frame labels
+    editor.frame_labels = frame_labels
 
 def split_asm_line(line):
     label = None
@@ -531,7 +534,7 @@ def extract_frame_pieces(data_array, start_ptr, piece_count, map_format):
     x_bytes = map_format['x_bytes']
 
     # Iterate through frame pieces
-    for _ in range(piece_count):
+    for _i in range(piece_count):
         # Safety check for binary EOF
         if ptr + piece_size > len(data_array):
             break
@@ -578,7 +581,8 @@ def extract_frame_pieces(data_array, start_ptr, piece_count, map_format):
             'x_flip': x_flip,
             'y_flip': y_flip,
             'palette': palette,
-            'priority': priority
+            'priority': priority,
+            'art_tile_2p': 0
         })
 
     # Return frame list
