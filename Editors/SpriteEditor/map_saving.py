@@ -91,7 +91,9 @@ def save_mappings_asm(editor, path, map_version):
 
         lines.append("")
 
+    # Leave at the end of the file
     lines.append("\teven")
+    lines.append("")
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

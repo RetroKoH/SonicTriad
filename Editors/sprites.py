@@ -75,6 +75,7 @@ class SpriteEditor(QtW.QWidget):
 
         btn_new.clicked.connect(self.file_sprite_new)
         btn_load.clicked.connect(self.file_sprite_load)
+        btn_save.clicked.connect(self.file_sprite_save)
 
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_load)
@@ -487,6 +488,36 @@ class SpriteEditor(QtW.QWidget):
                             _l.setText(dplcs.get("label", ""))
 
                 self.file_mapping_load()
+
+    def file_sprite_save(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
+            QtW.QMessageBox.warning(self, "No Project", "Please load a project file first.")
+            return
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Ensure 'sprites' dictionary exists and contains our sprite
+        sprites_dict = main_win.active_project_data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Save Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        sprite_data = sprites_dict[sprite_name]
+        if not sprite_data:
+            QtW.QMessageBox.warning(self, "Save Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        # Save palettes
+        self.file_palette_save()
+        self.file_art_save()
+        self.file_mapping_save()
 
     def file_palette_new(self):
         # Get top-level window to access project file
