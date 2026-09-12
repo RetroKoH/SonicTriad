@@ -68,20 +68,22 @@ class SpriteEditor(QtW.QWidget):
         btn_new = QtW.QPushButton("New")
         btn_load = QtW.QPushButton("Load")
         btn_save = QtW.QPushButton("Save")
-        btn_clear = QtW.QPushButton("Clear")
         btn_remove = QtW.QPushButton("Remove")
-        for btn in (btn_new, btn_load, btn_save, btn_clear, btn_remove):
+        btn_clear = QtW.QPushButton("Clear Data")
+        for btn in (btn_new, btn_load, btn_save, btn_remove):
             btn.setFixedWidth(55)
+        btn_clear.setFixedWidth(65)
 
         btn_new.clicked.connect(self.file_sprite_new)
         btn_load.clicked.connect(self.file_sprite_load)
         btn_save.clicked.connect(self.file_sprite_save)
+        btn_clear.clicked.connect(self.file_sprite_clear)
 
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_load)
         btn_layout.addWidget(btn_save)
-        btn_layout.addWidget(btn_clear)
         btn_layout.addWidget(btn_remove)
+        btn_layout.addWidget(btn_clear)
 
         spr_select_layout.addLayout(btn_layout)
         left_panel.addWidget(self.spr_select_group)
@@ -420,8 +422,9 @@ class SpriteEditor(QtW.QWidget):
             self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
 
         while self.art_rows:
-            path_input, offset_spin, comp_combo = self.art_rows[0]
-            self.remove_art_row(path_input.parentWidget(), self.art_rows[0])
+            path_input, _, _, _ = self.art_rows[0]
+            top_widget = path_input.parentWidget().parentWidget()
+            self.remove_art_row(top_widget, self.art_rows[0])
 
         if self.map_widget:
             self.remove_mapping_asset()
@@ -518,6 +521,53 @@ class SpriteEditor(QtW.QWidget):
         self.file_palette_save()
         self.file_art_save()
         self.file_mapping_save()
+
+    # Clears data (Optional run w/ Remove. Mandatory run w/ Load)
+    def file_sprite_clear(self):
+        # Clear palette to black
+        black = QColor(0, 0, 0)
+        self.palette_colors = [black for _i in range(64)]
+        for box in self.palette_boxes:
+            box.set_color(black)
+
+        # Flush out VRAM (art tiles)
+        self.vram_tiles.clear()
+
+        # Clear Sprite mappings
+        self.map_frames.clear()
+        self.frame_labels.clear()
+
+        # Reset UI widgets in the Sprite Viewer
+        self.vram_spinbox.setValue(0)
+        self.frame_spinbox.setValue(0)
+        self.frame_spinbox.setRange(0, 0)
+
+        # Refresh (clear) tile and sprite views
+        self.update_tile_viewer()
+        self.render_sprite_frame()
+
+        # Prompt user before clearing out File Manager widgets
+        ask_clear = QtW.QMessageBox.question(
+            self,"Clear File Manager","Clear out File Manager entries as well?",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.Yes
+        )
+
+        if ask_clear == QtW.QMessageBox.StandardButton.Yes:
+            # Clean out Palette rows
+            while self.pal_rows:
+                path_input, line_combo = self.pal_rows[0]
+                self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
+
+            # Clean out Art rows
+            while self.art_rows:
+                path_input, _, _, _ = self.art_rows[0]
+                top_widget = path_input.parentWidget().parentWidget()
+                self.remove_art_row(top_widget, self.art_rows[0])
+
+            # Clean out Mapping rows
+            if self.map_widget:
+                self.remove_mapping_asset()
 
     def file_palette_new(self):
         # Get top-level window to access project file
