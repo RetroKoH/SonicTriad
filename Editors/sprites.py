@@ -29,9 +29,13 @@ class SpriteEditor(QtW.QWidget):
         # Used in the art file manager
         self.art_rows = []  # Stores (path_input, offset_spin, comp_combo) for art loading
 
-        # Used in the map file manager
+        # Widget group used in the map file manager
         self.map_widget = None
-        self.map_path_input = None  # Tracks the mapping filepath input widget
+        self.map_path_input = None
+        self.map_dropdown = None
+        self.map_name_input = None
+        self.macro_cb = None
+
         self.map_frames = []    # Stores the parsed mapping data in memory
         # Not loading DPLCs right now
 
@@ -471,30 +475,37 @@ class SpriteEditor(QtW.QWidget):
 
         # Store Sprite Build data (First, the global VRAM starting point)
         sprite_data["vram_index"] = self.vram_spinbox.value()
-        sprite_data["format"] = self.map_dropdown.currentIndex() + 1
+
+        # If a mapping file hasn't been added, this widget will not be present
+        if self.map_dropdown is not None:
+            sprite_data["format"] = self.map_dropdown.currentIndex() + 1
+        else:
+            sprite_data["format"] = sprite_data.get("format", 1)  # Default to S1
 
         # Save Palettes as they are stored in the File Manager
-        new_palettes = []
-        for path_input, line_combo in self.pal_rows:
-            p_text = path_input.text().strip()
-            if p_text:
-                new_palettes.append({
-                    "path": make_relative(p_text),
-                    "length": int(line_combo.currentText() or "1")
-                })
-        sprite_data["palettes"] = new_palettes
+        if self.pal_rows:
+            new_palettes = []
+            for path_input, line_combo in self.pal_rows:
+                p_text = path_input.text().strip()
+                if p_text:
+                    new_palettes.append({
+                        "path": make_relative(p_text),
+                        "length": int(line_combo.currentText() or "1")
+                    })
+            sprite_data["palettes"] = new_palettes
 
         # Save Art files as they are stored in the File Manager
-        new_art = []
-        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
-            p_text = path_input.text().strip()
-            if p_text:
-                new_art.append({
-                    "path": make_relative(p_text),
-                    "compression": comp_combo.currentText(),
-                    "offset": offset_spin.value()
-                })
-        sprite_data["art"] = new_art
+        if self.art_rows:
+            new_art = []
+            for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
+                p_text = path_input.text().strip()
+                if p_text:
+                    new_art.append({
+                        "path": make_relative(p_text),
+                        "compression": comp_combo.currentText(),
+                        "offset": offset_spin.value()
+                    })
+            sprite_data["art"] = new_art
 
         # Save Mappings & DPLCs (DPLCs not used yet)
         new_mappings = {}
@@ -1271,10 +1282,17 @@ class SpriteEditor(QtW.QWidget):
     def remove_mapping_asset(self):
         # Removes the mapping/DPLC widget block and re-enables the Add button
         if self.map_widget:
+            # Remove widget group from the layout
             self.map_entries_layout.removeWidget(self.map_widget)
+            # Schedule widget group for deletion
             self.map_widget.deleteLater()
+
+            # Dereference stale widget group
             self.map_widget = None
             self.map_path_input = None
+            self.map_dropdown = None
+            self.map_name_input = None
+            self.macro_cb = None
 
         # This re-enables the Add button
         self.eval_map_capacity()
