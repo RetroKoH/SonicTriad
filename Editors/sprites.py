@@ -59,6 +59,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.spr_dropdown = QtW.QComboBox()
         self.spr_dropdown.setToolTip("Select a sprite build from the active project")
+        self.spr_dropdown.currentIndexChanged.connect(self.on_sprite_build_changed)
         spr_select_layout.addWidget(self.spr_dropdown, stretch=1)
 
         # File Buttons
@@ -381,13 +382,14 @@ class SpriteEditor(QtW.QWidget):
         self.spr_dropdown.addItem(sprite_name)
         self.spr_dropdown.setCurrentText(sprite_name)
 
+        # Clear out everything
+
     def file_sprite_load(self):
         # Get top-level window to access project file
         main_win = self.window()
 
         # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
         if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
-            QtW.QMessageBox.warning(self, "No Project", "Please load a project file first.")
             return
 
         # Get the selected sprite build name
@@ -401,97 +403,26 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
             return
 
+        # Get sprite data so we can load the global VRAM index
         sprite_data = sprites_dict[sprite_name]
         if not sprite_data:
             QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
             return
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
 
-        # Helper to convert relative paths/Path objects to full absolute path strings
-        def resolve_path_str(raw_path):
-            if not raw_path:
-                return ""
-            p_obj = Path(raw_path)
-            if project_dir and not p_obj.is_absolute():
-                return str((start_dir / p_obj).resolve())
-            return str(p_obj)
-
-        # Clean out File Manager
-        while self.pal_rows:
-            path_input, line_combo = self.pal_rows[0]
-            self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
-
-        while self.art_rows:
-            path_input, _, _, _ = self.art_rows[0]
-            top_widget = path_input.parentWidget().parentWidget()
-            self.remove_art_row(top_widget, self.art_rows[0])
-
-        if self.map_widget:
-            self.remove_mapping_asset()
-
-        # Set Global VRAM index and reset frame counter
+        # Set global VRAM index and reset frame counter
         self.vram_spinbox.setValue(sprite_data.get("vram_index", 0))
         self.frame_spinbox.setValue(0)
 
-        # Fill out palette data and load palettes
-        for pal in sprite_data.get("palettes", []):
-            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
-            self.add_palette_row(resolve_path_str(raw_path))
-
-            # New row at the end of the list
-            path_input, line_combo = self.pal_rows[-1]
-            line_combo.setCurrentText(str(pal.get("length", 1)))
-
+        # File data is no longer filled out here (now done upon dropdown change)
+        # Now the data is just loaded in when the button is pressed
         if self.pal_rows:
             self.file_palette_load()
-
-        # Fill out art data and load art tiles
-        for art in sprite_data.get("art", []):
-            raw_path = art.get("path", "") if isinstance(art, dict) else art
-            self.add_art_row(resolve_path_str(raw_path))
-
-            # New row at the end of the list
-            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
-            offset_spin.setValue(art.get("offset", 0))
-            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
-            count_spin.setValue(0)  # Load all tiles by default
 
         if self.art_rows:
             self.file_art_load()
 
-        # Fill out mapping data and load mappings
-        mappings = sprite_data.get("mappings", {})
-        dplcs = sprite_data.get("dplcs", {})
-
-        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
-        if map_path or mappings:
-            self.add_mapping_asset(resolve_path_str(map_path))
-
-            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
-            spr_format = sprite_data.get("format", 1)
-            self.map_dropdown.setCurrentIndex(spr_format - 1)
-
-            # Access layout widgets with findChildren to fill in information
-            if self.map_widget:
-                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
-                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
-
-                for _l in line_edits:
-                    if _l.placeholderText() == "Map_":
-                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
-
-                # Toggle and populate DPLCs if enabled
-                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
-                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
-                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
-                    for _l in line_edits:
-                        if _l.placeholderText() == "DPLC Filepath...":
-                            _l.setText(resolve_path_str(dplcs.get("path", "")))
-                        elif _l.placeholderText() == "DPLC_":
-                            _l.setText(dplcs.get("label", ""))
-
-                self.file_mapping_load()
+        if self.map_widget:
+            self.file_mapping_load()
 
     # Saves all loaded sprite assets and saves build to the project
     def file_sprite_save(self):
@@ -1356,7 +1287,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
 
-    # Rendering functions
+    # Dropdown functions
     def populate_sprite_list(self, sprite_builds):
         self.project_sprite_builds = sprite_builds
 
@@ -1382,6 +1313,97 @@ class SpriteEditor(QtW.QWidget):
         if not self.active_sprite_build and self.spr_dropdown.count() > 0:
             self.spr_dropdown.setCurrentIndex(0)
 
+    def on_sprite_build_changed(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
+            return
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Ensure 'sprites' dictionary exists and contains our sprite
+        sprites_dict = main_win.active_project_data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        # Get data for the newly selected sprite build
+        sprite_data = sprites_dict[sprite_name]
+        if not sprite_data:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Helper to convert relative paths/Path objects to full absolute path strings
+        def resolve_path_str(raw_path):
+            if not raw_path:
+                return ""
+            p_obj = Path(raw_path)
+            if project_dir and not p_obj.is_absolute():
+                return str((Path(start_dir) / p_obj).resolve())
+            return str(p_obj)
+
+        # Clean out File Manager ONLY (Leaves loaded data untouched)
+        self.sprite_manager_clear()
+
+        # Fill out palette data
+        for pal in sprite_data.get("palettes", []):
+            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
+            self.add_palette_row(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, line_combo = self.pal_rows[-1]
+            line_combo.setCurrentText(str(pal.get("length", 1)))
+
+        # Fill out art data
+        for art in sprite_data.get("art", []):
+            raw_path = art.get("path", "") if isinstance(art, dict) else art
+            self.add_art_row(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
+            offset_spin.setValue(art.get("offset", 0))
+            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
+            count_spin.setValue(0)  # Load all tiles by default
+
+        # Fill out mapping data
+        mappings = sprite_data.get("mappings", {})
+        dplcs = sprite_data.get("dplcs", {})
+
+        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
+        if map_path or mappings:
+            self.add_mapping_asset(resolve_path_str(map_path))
+
+            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
+            spr_format = sprite_data.get("format", 1)
+            self.map_dropdown.setCurrentIndex(spr_format - 1)
+
+            # Access layout widgets with findChildren to fill in information
+            if self.map_widget:
+                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
+                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+
+                for _l in line_edits:
+                    if _l.placeholderText() == "Map_":
+                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
+
+                # Toggle and populate DPLCs if enabled
+                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
+                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
+                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
+                    for _l in line_edits:
+                        if _l.placeholderText() == "DPLC Filepath...":
+                            _l.setText(resolve_path_str(dplcs.get("path", "")))
+                        elif _l.placeholderText() == "DPLC_":
+                            _l.setText(dplcs.get("label", ""))
+
+    # Rendering functions
     def update_tile_viewer(self):
         """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
         from PyQt6.QtGui import QImage, QPixmap
