@@ -1071,7 +1071,6 @@ class PaletteEditor(QtW.QWidget):
                 QFrame {{
                     background-color: {color.name()};
                     border: 1px solid #555555;
-                    border-radius: 4px;
                 }}
             """)
             self.clipboard_grid_layout.addWidget(box, row, col)

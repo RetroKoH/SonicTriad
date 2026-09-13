@@ -63,11 +63,11 @@ class ColorBox(QtW.QFrame):
             border_color = theme.get("border", "#444444")
             border_width = "1px"
 
+        # Optional: border-radius: 4px; <- rounded rect
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {self.color.name()};
-                border: {border_width} solid {border_color};
-                border-radius: 4px;
+                border: {border_width} solid {border_color};                
             }}
         """)
 
@@ -354,6 +354,5 @@ class MiniColorBox(QtW.QFrame):
             QFrame {{
                 background-color: {self.color.name()};
                 border: none;
-                border-radius: 0px;
             }}
         """)
