@@ -77,6 +77,7 @@ class SpriteEditor(QtW.QWidget):
         btn_new.clicked.connect(self.file_sprite_new)
         btn_load.clicked.connect(self.file_sprite_load)
         btn_save.clicked.connect(self.file_sprite_save)
+        btn_remove.clicked.connect(self.file_sprite_remove)
         btn_clear.clicked.connect(self.file_sprite_clear)
 
         btn_layout.addWidget(btn_new)
@@ -492,6 +493,7 @@ class SpriteEditor(QtW.QWidget):
 
                 self.file_mapping_load()
 
+    # Saves all loaded sprite assets and saves build to the project
     def file_sprite_save(self):
         # Get top-level window to access project file
         main_win = self.window()
@@ -517,13 +519,170 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.warning(self, "Save Error", f"Sprite '{sprite_name}' not found in project data.")
             return
 
-        # Save palettes
+        # Save sprite assets
         self.file_palette_save()
         self.file_art_save()
         self.file_mapping_save()
 
-    # Clears data (Optional run w/ Remove. Mandatory run w/ Load)
+        # JSON SAVING
+        project_dir = getattr(main_win, "project_root_dir", None)
+
+        # Helper to attempt to save paths relative to the project directory
+        def make_relative(path_str):
+            if not path_str or not project_dir:
+                return path_str
+            try:
+                # Returns relative path if it's within the project root
+                return str(Path(path_str).relative_to(project_dir))
+            except ValueError:
+                # Fallback to absolute path if it resides outside the project root
+                return str(path_str)
+
+        # Store Sprite Build data (First, the global VRAM starting point)
+        sprite_data["vram_index"] = self.vram_spinbox.value()
+        sprite_data["format"] = self.map_dropdown.currentIndex() + 1
+
+        # Save Palettes as they are stored in the File Manager
+        new_palettes = []
+        for path_input, line_combo in self.pal_rows:
+            p_text = path_input.text().strip()
+            if p_text:
+                new_palettes.append({
+                    "path": make_relative(p_text),
+                    "length": int(line_combo.currentText() or "1")
+                })
+        sprite_data["palettes"] = new_palettes
+
+        # Save Art files as they are stored in the File Manager
+        new_art = []
+        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
+            p_text = path_input.text().strip()
+            if p_text:
+                new_art.append({
+                    "path": make_relative(p_text),
+                    "compression": comp_combo.currentText(),
+                    "offset": offset_spin.value()
+                })
+        sprite_data["art"] = new_art
+
+        # Save Mappings & DPLCs (DPLCs not used yet)
+        new_mappings = {}
+        new_dplcs = {"enabled": False, "path": "", "label": ""}
+
+        if self.map_widget:
+            if self.map_path_input:
+                new_mappings["path"] = make_relative(self.map_path_input.text().strip())
+
+            # Access layout widgets to get map/DPLC info
+            line_edits = self.map_widget.findChildren(QtW.QLineEdit)
+            checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+
+            for _l in line_edits:
+                if _l.placeholderText() == "Map_":
+                    new_mappings["label"] = _l.text().strip()
+                elif _l.placeholderText() == "DPLC Filepath...":
+                    new_dplcs["path"] = make_relative(_l.text().strip())
+                elif _l.placeholderText() == "DPLC_":
+                    new_dplcs["label"] = _l.text().strip()
+
+            dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
+            if dplc_cb:
+                new_dplcs["enabled"] = dplc_cb.isChecked()
+
+        sprite_data["mappings"] = new_mappings
+        sprite_data["dplcs"] = new_dplcs
+
+        # Save JSON changes
+        project_json_path = getattr(main_win, "active_project_json_path", None)
+        if project_json_path and Path(project_json_path).exists():
+            try:
+                with open(project_json_path, "w", encoding="utf-8") as f:
+                    json.dump(main_win.active_project_data, f, indent=2)
+
+                QtW.QMessageBox.information(
+                    self, "Project Saved",
+                    f"Sprite '{sprite_name}' configuration saved to project JSON."
+                )
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+
+    def file_sprite_remove(self):
+        # Get the currently selected sprite name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Prompt user before clearing out File Manager widgets and data
+        if QtW.QMessageBox.question(
+            self,
+            "Remove Sprite Build",
+            f"Are you sure you want to remove '{sprite_name}' from the project?\n\n"
+            "Note: The actual files will NOT be deleted from your disassembly.",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No
+        ) == QtW.QMessageBox.StandardButton.Yes:
+            self.sprite_data_flush()
+            self.sprite_manager_clear()
+
+            main_win = self.window()
+            project_dir = getattr(main_win, "project_root_dir", None)
+
+            # Remove the palette from the JSON project file
+            if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+                sprites_dict = main_win.active_project_data.get("sprites", {})
+
+                # Remove from JSON
+                if sprite_name in sprites_dict:
+                    del sprites_dict[sprite_name]
+
+                    # Save JSON changes to disk
+                    project_json_path = getattr(main_win, "active_project_json_path", None)
+                    if project_json_path and Path(project_json_path).exists():
+                        try:
+                            with open(project_json_path, "w", encoding="utf-8") as f:
+                                json.dump(main_win.active_project_data, f, indent=2)
+                        except Exception as e:
+                            QtW.QMessageBox.warning(
+                                self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}"
+                            )
+
+            # Remove dict entry and refresh dropdown
+            if sprite_name in self.project_sprite_builds:
+                del self.project_sprite_builds[sprite_name]
+
+            self.active_sprite_build = None
+            self.populate_sprite_list(self.project_sprite_builds)
+
     def file_sprite_clear(self):
+        # Clear out all sprite data
+        self.sprite_data_flush()
+
+        # Prompt user before clearing out File Manager widgets
+        if QtW.QMessageBox.question(
+            self,"Clear File Manager","Clear out File Manager entries as well?",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.Yes
+        ) == QtW.QMessageBox.StandardButton.Yes:
+            self.sprite_manager_clear()
+
+    def sprite_manager_clear(self):
+        """Clear out all files stored in the File Manager."""
+        # Clean out Palette rows
+        while self.pal_rows:
+            path_input, line_combo = self.pal_rows[0]
+            self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
+
+        # Clean out Art rows
+        while self.art_rows:
+            path_input, _, _, _ = self.art_rows[0]
+            top_widget = path_input.parentWidget().parentWidget()
+            self.remove_art_row(top_widget, self.art_rows[0])
+
+        # Clean out Mapping rows
+        if self.map_widget:
+            self.remove_mapping_asset()
+
+    def sprite_data_flush(self):
         # Clear palette to black
         black = QColor(0, 0, 0)
         self.palette_colors = [black for _i in range(64)]
@@ -545,29 +704,6 @@ class SpriteEditor(QtW.QWidget):
         # Refresh (clear) tile and sprite views
         self.update_tile_viewer()
         self.render_sprite_frame()
-
-        # Prompt user before clearing out File Manager widgets
-        ask_clear = QtW.QMessageBox.question(
-            self,"Clear File Manager","Clear out File Manager entries as well?",
-            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
-            QtW.QMessageBox.StandardButton.Yes
-        )
-
-        if ask_clear == QtW.QMessageBox.StandardButton.Yes:
-            # Clean out Palette rows
-            while self.pal_rows:
-                path_input, line_combo = self.pal_rows[0]
-                self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
-
-            # Clean out Art rows
-            while self.art_rows:
-                path_input, _, _, _ = self.art_rows[0]
-                top_widget = path_input.parentWidget().parentWidget()
-                self.remove_art_row(top_widget, self.art_rows[0])
-
-            # Clean out Mapping rows
-            if self.map_widget:
-                self.remove_mapping_asset()
 
     def file_palette_new(self):
         # Get top-level window to access project file
