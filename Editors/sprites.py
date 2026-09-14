@@ -10,6 +10,7 @@ from Editors.palettes import snap_to_md_colors
 from PaletteEditor.colorbox import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
+from Formats.Nemesis import Nemesis
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -818,6 +819,14 @@ class SpriteEditor(QtW.QWidget):
             try:
                 with open(path, "rb") as f:
                     raw_data = f.read()
+
+                compression = comp_combo.currentText()
+
+                if compression == "Nemesis":
+                    nemesis = Nemesis(raw_data)
+                    raw_data = nemesis.decompress()
+                elif compression != "Uncompressed":
+                    raise ValueError(f"Unsupported art compression format: {compression}")
 
                 # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
                 tile_count = len(raw_data) // 32
