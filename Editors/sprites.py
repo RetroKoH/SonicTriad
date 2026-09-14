@@ -166,7 +166,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.btn_art_add.clicked.connect(self.file_art_new)
         self.btn_art_load.clicked.connect(self.file_art_load)
-        self.btn_art_load.clicked.connect(self.file_art_save)
+        self.btn_art_save.clicked.connect(self.file_art_save)
 
         art_layout.addLayout(art_btn_layout)
 
@@ -1433,9 +1433,7 @@ class SpriteEditor(QtW.QWidget):
     # Rendering functions
     def update_tile_viewer(self):
         """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
-        from PyQt6.QtGui import QImage, QPixmap
-
-        # size: 16 x 128 tiles
+        # Size: 16 x 128 tiles
         vram_width_px = 16 * 8
         vram_height_px = 128 * 8
 
