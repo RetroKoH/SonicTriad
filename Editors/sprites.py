@@ -10,7 +10,8 @@ from Editors.palettes import snap_to_md_colors
 from PaletteEditor.colorbox import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
-from Formats.Nemesis import Nemesis
+
+from Formats import decompress
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -823,8 +824,11 @@ class SpriteEditor(QtW.QWidget):
                 compression = comp_combo.currentText()
 
                 if compression == "Nemesis":
-                    nemesis = Nemesis(raw_data)
-                    raw_data = nemesis.decompress()
+                    raw_data = decompress.nemesis(raw_data)
+                elif compression == "Kosinski":
+                    raw_data = decompress.kosinski(raw_data)
+                elif compression == "Kosinski-M":
+                    raw_data = decompress.kosinski_mod(raw_data)
                 elif compression != "Uncompressed":
                     raise ValueError(f"Unsupported art compression format: {compression}")
 
