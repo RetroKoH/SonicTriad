@@ -787,7 +787,7 @@ class SpriteEditor(QtW.QWidget):
         project_dir = getattr(main_win, "project_root_dir", None)
         start_dir = str(project_dir) if project_dir else ""
 
-        # Filetype filter
+        # Filetype filter (To-Do: Move this to a global file and have each load instance pick and choose)
         art_file_filter = (
             "Uncompressed Art (*.bin *.unc);;"
             "Nemesis Art (*.nem *.unc);;"

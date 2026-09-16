@@ -25,17 +25,15 @@ class TriadApp(QtW.QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QtW.QVBoxLayout(main_widget)
 
-        # New theme toggle (temp setup)
-        top_bar = QtW.QHBoxLayout()
-        self.theme_btn = QtW.QPushButton("Toggle Theme")
-        self.theme_btn.clicked.connect(self.toggle_theme)
-        top_bar.addStretch()
-        top_bar.addWidget(self.theme_btn)
-        main_layout.addLayout(top_bar)
-
         # Mode Tabs
         self.tabs = QtW.QTabWidget()
         main_layout.addWidget(self.tabs)
+
+        # Theme toggle beside the tab labels
+        # (To-Do: turn this into a drop-down with multiple themes)
+        self.theme_btn = QtW.QPushButton("Toggle Theme")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        self.tabs.setCornerWidget(self.theme_btn, Qt.Corner.TopRightCorner)
 
         self.projects_tab()
 
