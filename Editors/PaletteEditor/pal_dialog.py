@@ -3,6 +3,7 @@ from PyQt6.QtGui import QImage, QPixmap, QFont, QPainter, QPen
 
 from Editors import PaletteEditor
 from PaletteEditor.colorbox import *
+from palettes import snap_to_md_colors
 
 from Constants import *
 
@@ -324,9 +325,9 @@ class ColorBlendDialog(AdvancedEditDialog):
         _b = int(original_color.blue() * inverse_factor + self.blend_color.blue() * blend_factor)
 
         # Convert to a compatible color
-        step_r = self.editor.snap_to_md_colors(_r)
-        step_g = self.editor.snap_to_md_colors(_g)
-        step_b = self.editor.snap_to_md_colors(_b)
+        step_r = snap_to_md_colors(_r)
+        step_g = snap_to_md_colors(_g)
+        step_b = snap_to_md_colors(_b)
 
         return QColor(MDCOLOR_VALUES[step_r], MDCOLOR_VALUES[step_g], MDCOLOR_VALUES[step_b])
 
@@ -593,9 +594,9 @@ class GradientBuilderDialog(QtW.QDialog):
             _b = int(self.color_src.blue() * inv_t + self.color_dst.blue() * _t)
 
             # Convert to MD colors
-            step_r = self.editor.snap_to_md_colors(_r)
-            step_g = self.editor.snap_to_md_colors(_g)
-            step_b = self.editor.snap_to_md_colors(_b)
+            step_r = snap_to_md_colors(_r)
+            step_g = snap_to_md_colors(_g)
+            step_b = snap_to_md_colors(_b)
             colors.append(QColor(MDCOLOR_VALUES[step_r], MDCOLOR_VALUES[step_g], MDCOLOR_VALUES[step_b]))
 
         return colors

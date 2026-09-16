@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from PyQt6.QtWidgets import QSizePolicy
+from PyQt6.QtCore import QSize
+
 from PaletteEditor.pal_dialog import *
 
 from Constants import *
@@ -45,33 +48,32 @@ class PaletteEditor(QtW.QWidget):
         self.active_advanced_dialog = None
 
     def init_ui(self):
-        main_layout = QtW.QHBoxLayout(self)
+        main_layout = QtW.QVBoxLayout(self)
 
         # -----------------------------
-        # LEFT PANEL: Palette Selection, Palette, and Clipboard
+        # TOP PANEL: File Functions and Palette Selection
         # -----------------------------
-        left_panel = QtW.QVBoxLayout()
+        pal_select_layout = QtW.QHBoxLayout()
+        pal_select_layout.setSpacing(4)
+        pal_select_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Palette File Dropdown
-        self.pal_select_group = QtW.QGroupBox("Select Palette")
-        pal_select_layout = QtW.QHBoxLayout(self.pal_select_group)
-
         self.pal_dropdown = QtW.QComboBox()
+        self.pal_dropdown.setMaximumWidth(300)
+        self.pal_dropdown.setFixedHeight(25)
+        self.pal_dropdown.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
         self.pal_dropdown.setToolTip("Select a palette file from the active project")
         self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
         pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
 
         # File Buttons
-        btn_layout = QtW.QHBoxLayout()
-        btn_layout.setSpacing(4)
-
         btn_new = QtW.QPushButton("New")
         btn_load = QtW.QPushButton("Load")
         btn_save = QtW.QPushButton("Save")
         btn_saveas = QtW.QPushButton("Save As...")
         btn_remove = QtW.QPushButton("Remove")
         for btn in (btn_new, btn_load, btn_save, btn_saveas, btn_remove):
-            btn.setFixedWidth(55)
+            btn.setFixedSize(QSize(65, 25))
 
         btn_new.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_new))
         btn_load.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_load))
@@ -79,23 +81,80 @@ class PaletteEditor(QtW.QWidget):
         btn_saveas.clicked.connect(self.file_palette_save_as)
         btn_remove.clicked.connect(self.file_palette_remove)
 
-        btn_layout.addWidget(btn_new)
-        btn_layout.addWidget(btn_load)
-        btn_layout.addWidget(btn_save)
-        btn_layout.addWidget(btn_saveas)
-        btn_layout.addWidget(btn_remove)
+        pal_select_layout.addWidget(btn_new)
+        pal_select_layout.addWidget(btn_load)
+        pal_select_layout.addWidget(btn_save)
+        pal_select_layout.addWidget(btn_saveas)
+        pal_select_layout.addWidget(btn_remove)
 
-        pal_select_layout.addLayout(btn_layout)
-        left_panel.addWidget(self.pal_select_group)
+        self.unsaved_label = QtW.QLabel("Unsaved Changes")
+        self.unsaved_label.setVisible(self._unsaved_changes)
+        pal_select_layout.addWidget(self.unsaved_label)
+
+        pal_select_layout.addStretch()
+
+        main_layout.addLayout(pal_select_layout)
+
+        # Content layout below the upper level
+        content_layout = QtW.QHBoxLayout()
+        main_layout.addLayout(content_layout, stretch=1)
+
+        # -----------------------------
+        # LEFT PANEL: Palette and Clipboard
+        # -----------------------------
+        left_panel = QtW.QVBoxLayout()
 
         # Palette Grid
-        color_box = QtW.QGroupBox(
-            "Palette Grid (Left Click: Select |"+
-            " Left+Shift: Mass Select |"+
-            " Left+Ctrl: Toggle Selection |"+
-            " Right Click: Context Menu)"
-        )
+        color_box = QtW.QGroupBox("Palette")
         color_layout = QtW.QVBoxLayout(color_box)
+
+        # Palette Editing Toolbar
+        pal_edit_layout = QtW.QHBoxLayout()
+        pal_edit_layout.setSpacing(4)
+
+        self.btn_undo = QtW.QPushButton("Undo")
+        self.btn_redo = QtW.QPushButton("Redo")
+        self.btn_copy = QtW.QPushButton("Copy")
+        self.btn_cut = QtW.QPushButton("Cut")
+        self.btn_paste = QtW.QPushButton("Paste")
+        btn_resize = QtW.QPushButton("Resize Palette")
+        for btn in (self.btn_undo, self.btn_redo, self.btn_copy, self.btn_cut, self.btn_paste):
+            btn.setFixedSize(QSize(55, 25))
+        btn_resize.setFixedSize(QSize(85, 25))
+
+        self.btn_undo.clicked.connect(self.edit_palette_undo)
+        self.btn_redo.clicked.connect(self.edit_palette_redo)
+        self.btn_copy.clicked.connect(self.copy_colors)
+        self.btn_cut.clicked.connect(lambda: self.copy_colors(True))
+        self.btn_paste.clicked.connect(lambda: self.paste_colors("over", self.active_index))
+        btn_resize.clicked.connect(self.edit_palette_resize)
+
+        self.update_undo_redo()  # Disable Undo/Redo at the start
+
+        pal_edit_layout.addWidget(self.btn_undo)
+        pal_edit_layout.addWidget(self.btn_redo)
+        pal_edit_layout.addWidget(self.btn_copy)
+        pal_edit_layout.addWidget(self.btn_cut)
+        pal_edit_layout.addWidget(self.btn_paste)
+        pal_edit_layout.addWidget(btn_resize)
+        pal_edit_layout.addStretch()
+
+        color_layout.addLayout(pal_edit_layout)
+
+        # Palette Selection Instructions
+        instruction_label = QtW.QLabel(
+            "Click to select | Shift-click for range | "
+            "Ctrl-click to toggle | Right-click for options"
+        )
+        instruction_label.setWordWrap(True)
+
+        instruction_font = instruction_label.font()
+        instruction_font.setPointSizeF(
+            max(8.0, instruction_font.pointSizeF() - 1.0)
+        )
+        instruction_label.setFont(instruction_font)
+
+        color_layout.addWidget(instruction_label)
 
         # Scroll area in case palette grid extends past the window border
         scroll_area = QtW.QScrollArea()
@@ -109,23 +168,32 @@ class PaletteEditor(QtW.QWidget):
         scroll_area.setWidget(scroll_content)
         color_layout.addWidget(scroll_area)
 
-        left_panel.addWidget(color_box, stretch=2)
-
         # Palette Clipboard
-        self.clipboard_group = QtW.QGroupBox("Palette Clipboard")
+        self.clipboard_group = QtW.QGroupBox()
         clipboard_layout = QtW.QVBoxLayout(self.clipboard_group)
 
         clip_header_layout = QtW.QHBoxLayout()
-        self.btn_clear_clipboard = QtW.QPushButton("Clear Clipboard")
-        self.btn_clear_clipboard.setFixedWidth(110)
+
+        self.btn_toggle_clipboard = QtW.QToolButton()
+        self.btn_toggle_clipboard.setText("Clipboard")
+        self.btn_toggle_clipboard.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_toggle_clipboard.setArrowType(Qt.ArrowType.DownArrow)
+        self.btn_toggle_clipboard.setCheckable(True)
+        self.btn_toggle_clipboard.setChecked(True)
+        self.btn_toggle_clipboard.setAutoRaise(True)
+        self.btn_toggle_clipboard.toggled.connect(self.toggle_clipboard)
+
+        self.btn_clear_clipboard = QtW.QPushButton("Clear")
         self.btn_clear_clipboard.clicked.connect(self.clear_clipboard)
+
+        clip_header_layout.addWidget(self.btn_toggle_clipboard)
         clip_header_layout.addStretch()
         clip_header_layout.addWidget(self.btn_clear_clipboard)
 
         clipboard_layout.addLayout(clip_header_layout)
 
-        clipboard_scroll = QtW.QScrollArea()
-        clipboard_scroll.setWidgetResizable(True)
+        self.clipboard_scroll = QtW.QScrollArea()
+        self.clipboard_scroll.setWidgetResizable(True)
         clipboard_content = QtW.QWidget()
 
         self.clipboard_empty_label = None
@@ -134,48 +202,29 @@ class PaletteEditor(QtW.QWidget):
         self.clipboard_grid_layout.setSpacing(6)
         self.clipboard_grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        clipboard_scroll.setWidget(clipboard_content)
-        clipboard_layout.addWidget(clipboard_scroll)
+        self.clipboard_scroll.setWidget(clipboard_content)
+        clipboard_layout.addWidget(self.clipboard_scroll)
 
-        left_panel.addWidget(self.clipboard_group, stretch=1)
+        # Create a splitter between the palette and the clipboard
+        self.palette_splitter = QtW.QSplitter(Qt.Orientation.Vertical)
+        self.palette_splitter.addWidget(color_box)
+        self.palette_splitter.addWidget(self.clipboard_group)
+        self.palette_splitter.setChildrenCollapsible(False)
+        self.palette_splitter.setHandleWidth(8)
+        self.palette_splitter.setStretchFactor(0, 2)
+        self.palette_splitter.setStretchFactor(1, 1)
+        self.palette_splitter.setSizes([400, 200])
 
-        main_layout.addLayout(left_panel, stretch=2)
+        self.clipboard_splitter_sizes = None
+
+        left_panel.addWidget(self.palette_splitter)
+
+        content_layout.addLayout(left_panel, stretch=2)
 
         # -----------------------------
         # RIGHT PANEL: Editing Controls
         # -----------------------------
         right_panel = QtW.QVBoxLayout()
-
-        # Color Entry Edit Buttons
-        pal_edit_group = QtW.QGroupBox("Palette Editing")
-        pal_edit_layout = QtW.QVBoxLayout(pal_edit_group)
-
-        # Edit Buttons (Features to be considered: Undo, Redo, Resize (Add/Remove), Shift)
-        btn_grid_edit = QtW.QGridLayout()
-        self.btn_undo = QtW.QPushButton("Undo")
-        self.btn_redo = QtW.QPushButton("Redo")
-        btn_resize = QtW.QPushButton("Resize")
-        btn_shift_L = QtW.QPushButton("<<")
-        btn_shift_R = QtW.QPushButton(">>")
-        for btn in (self.btn_undo, self.btn_redo, btn_resize, btn_shift_L, btn_shift_R):
-            btn.setFixedWidth(55)
-
-        self.btn_undo.clicked.connect(self.edit_palette_undo)
-        self.btn_redo.clicked.connect(self.edit_palette_redo)
-        btn_resize.clicked.connect(self.edit_palette_resize)
-        btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
-        btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
-
-        self.update_undo_redo()     # Disable Undo/Redo at the start
-
-        btn_grid_edit.addWidget(self.btn_undo, 0, 0)
-        btn_grid_edit.addWidget(self.btn_redo, 0, 1)
-        btn_grid_edit.addWidget(btn_resize, 0, 2)
-        btn_grid_edit.addWidget(btn_shift_L, 0, 3)
-        btn_grid_edit.addWidget(btn_shift_R, 0, 4)
-
-        pal_edit_layout.addLayout(btn_grid_edit)
-        right_panel.addWidget(pal_edit_group)
 
         # Color Editing Tool
         control_group = QtW.QGroupBox("Color Editing")
@@ -213,10 +262,17 @@ class PaletteEditor(QtW.QWidget):
         control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
         control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
-        control_layout.addSpacing(15)
+        # Separate individual color controls from batch editing
+        batch_separator = QtW.QFrame()
+        batch_separator.setFrameShape(QtW.QFrame.Shape.HLine)
+        batch_separator.setFrameShadow(QtW.QFrame.Shadow.Sunken)
 
-        # Mass Color Editing
-        mass_edit_label = QtW.QLabel("Mass Editing")
+        control_layout.addSpacing(8)
+        control_layout.addWidget(batch_separator)
+        control_layout.addSpacing(8)
+
+        # Batch Editing
+        mass_edit_label = QtW.QLabel("Batch Editing")
         mass_edit_label.setObjectName("infoLabel")
         control_layout.addWidget(mass_edit_label)
 
@@ -229,55 +285,85 @@ class PaletteEditor(QtW.QWidget):
         mass_scope_layout.addWidget(self.opt_mass_selected)
         control_layout.addLayout(mass_scope_layout)
 
-        mass_shift_layout = QtW.QGridLayout()
-        mass_shift_layout.setSpacing(4)
+        # Batch Channel Editing
+        batch_edit_layout = QtW.QGridLayout()
+        batch_edit_layout.setHorizontalSpacing(6)
+        batch_edit_layout.setVerticalSpacing(4)
 
-        btn_r_minus = QtW.QPushButton("- Red")
-        btn_r_plus = QtW.QPushButton("+ Red")
-        btn_g_minus = QtW.QPushButton("- Green")
-        btn_g_plus = QtW.QPushButton("+ Green")
-        btn_b_minus = QtW.QPushButton("- Blue")
-        btn_b_plus = QtW.QPushButton("+ Blue")
         channels = [
-            ("Red", btn_r_minus, btn_r_plus, 'r'),
-            ("Green", btn_g_minus, btn_g_plus, 'g'),
-            ("Blue", btn_b_minus, btn_b_plus, 'b'),
+            ("Red", 'r'),
+            ("Green", 'g'),
+            ("Blue", 'b'),
         ]
 
-        # Establish all buttons here (Redo other buttons' init in a similar manner later)
-        for idx, (label_text, btn_minus, btn_plus, ch) in enumerate(channels):
-            lbl = QtW.QLabel(label_text)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet("font-weight: bold;")
-            btn_minus.setFixedWidth(80)
-            btn_plus.setFixedWidth(80)
+        for idx, (label_text, ch) in enumerate(channels):
+            lbl = QtW.QLabel(f"{label_text}:")
+
+            btn_minus = QtW.QPushButton("−")
+            btn_plus = QtW.QPushButton("+")
+            btn_minus.setFixedSize(QSize(40, 25))
+            btn_plus.setFixedSize(QSize(40, 25))
+
+            btn_minus.setToolTip(f"Decrease {label_text.lower()} by one step")
+            btn_plus.setToolTip(f"Increase {label_text.lower()} by one step")
 
             btn_minus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(channel, -1))
             btn_plus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(channel, 1))
 
-            grid_row = idx * 2
-            # Span label across both button columns
-            mass_shift_layout.addWidget(lbl, grid_row, 0, 1, 2)
-            mass_shift_layout.addWidget(btn_minus, grid_row + 1, 0)
-            mass_shift_layout.addWidget(btn_plus, grid_row + 1, 1)
+            batch_edit_layout.addWidget(lbl, idx, 0)
+            batch_edit_layout.addWidget(btn_minus, idx, 1)
+            batch_edit_layout.addWidget(btn_plus, idx, 2)
 
-        control_layout.addLayout(mass_shift_layout)
+        # Keep the controls together, with spare space on the right
+        batch_edit_layout.setColumnStretch(3, 1)
 
-        control_layout.addStretch()
-        right_panel.addWidget(control_group, stretch=1)
+        control_layout.addLayout(batch_edit_layout)
 
-        # Advanced Editing Functions
-        advanced_group = QtW.QGroupBox("Advanced Functions")
-        advanced_layout = QtW.QVBoxLayout(advanced_group)
+        # Shift Selected Colors
+        shift_layout = QtW.QHBoxLayout()
+        shift_layout.setSpacing(4)
+
+        shift_label = QtW.QLabel("Shift selected colors:")
+        self.btn_shift_L = QtW.QPushButton("<< Left")
+        self.btn_shift_R = QtW.QPushButton("Right >>")
+
+        self.btn_shift_L.setToolTip("Rotate selected colors left, wrapping the first to the end")
+        self.btn_shift_R.setToolTip("Rotate selected colors right, wrapping the last to the start")
+
+        self.btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
+        self.btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
+
+        shift_layout.addWidget(shift_label)
+        shift_layout.addWidget(self.btn_shift_L)
+        shift_layout.addWidget(self.btn_shift_R)
+        shift_layout.addStretch()
+
+        control_layout.addLayout(shift_layout)
+
+        # Advanced Color Editing
+        advanced_separator = QtW.QFrame()
+        advanced_separator.setFrameShape(QtW.QFrame.Shape.HLine)
+        advanced_separator.setFrameShadow(QtW.QFrame.Shadow.Sunken)
+
+        control_layout.addSpacing(8)
+        control_layout.addWidget(advanced_separator)
+        control_layout.addSpacing(8)
+
+        advanced_label = QtW.QLabel("Advanced Color Editing")
+        advanced_label.setObjectName("infoLabel")
+        control_layout.addWidget(advanced_label)
 
         # Advanced Option Buttons
         btn_grid_adv = QtW.QGridLayout()
+        btn_grid_adv.setHorizontalSpacing(6)
+        btn_grid_adv.setVerticalSpacing(6)
+        btn_grid_adv.setColumnStretch(0, 1)
+        btn_grid_adv.setColumnStretch(1, 1)
+
         btn_blend = QtW.QPushButton("Color Blend")
         btn_grey = QtW.QPushButton("Greyscale")
         btn_invert = QtW.QPushButton("Invert Colors")
         btn_gradient = QtW.QPushButton("Build Gradient")
-        for btn in (btn_blend, btn_grey, btn_invert, btn_gradient):
-            btn.setFixedWidth(140)
         btn_extract = QtW.QPushButton("Extract Palette")
 
         btn_blend.clicked.connect(self.adv_blend_colors)
@@ -292,14 +378,18 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_adv.addWidget(btn_gradient, 1, 1)
         btn_grid_adv.addWidget(btn_extract, 2, 0, 1, 2)
 
-        advanced_layout.addLayout(btn_grid_adv)
-        right_panel.addWidget(advanced_group)
+        control_layout.addLayout(btn_grid_adv)
 
-        main_layout.addLayout(right_panel, stretch=1)
+        # Keep all editing sections together at the top
+        control_layout.addStretch()
+        right_panel.addWidget(control_group, stretch=1)
+
+        content_layout.addLayout(right_panel, stretch=1)
 
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
         self.refresh_clipboard()
+        self.btn_toggle_clipboard.setChecked(False)
 
     def file_palette_new(self):
         count, ok = QtW.QInputDialog.getInt(
@@ -440,7 +530,7 @@ class PaletteEditor(QtW.QWidget):
                 except Exception as e:
                     QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
 
-        # Savr new palette copy to disk
+        # Save new palette copy to disk
         self.write_palette_to_disk(path)
 
         # Add path to the editor's list and select it for editing
@@ -997,8 +1087,12 @@ class PaletteEditor(QtW.QWidget):
         for idx, box in enumerate(self.boxes):
             box.set_selected(idx in self.selected_indices)
 
-        # Dynamic selection text
+        # Dynamic elements based on color selection count
         count = len(self.selected_indices)
+        # Shifting requires at least two selected colors
+        self.btn_shift_L.setEnabled(count > 1)
+        self.btn_shift_R.setEnabled(count > 1)
+        # Set selected color text
         if count > 1:
             self.index_label.setText(f"Selected: {count} Colors (Active: #{self.active_index})")
         else:
@@ -1038,11 +1132,90 @@ class PaletteEditor(QtW.QWidget):
         # Emit signal so open dialogs know selection or active colors changed
         self.selection_changed.emit()
 
+    def copy_colors(self, cut=False):
+        if not self.selected_indices:
+            return
+
+        # Sort colors to keep them in visual order when pasting
+        sorted_indices = sorted(self.selected_indices)
+        self.clipboard_colors = [QColor(self.palette_colors[idx]) for idx in sorted_indices]
+        self.refresh_clipboard()
+
+        # If only Copying, stop here. Otherwise, remove copied colors
+        if cut:
+            # Delete in reverse order to avoid issues with index shifting
+            sorted_indices.reverse()
+            # Unsaved flag and undo state recording handled here
+            self.remove_colors(sorted_indices)
+
+    def paste_colors(self, mode, target_index):
+        if not self.clipboard_colors:
+            return
+
+        self.push_undo_state()  # Record state before pasting colors
+
+        clipboard_length = len(self.clipboard_colors)
+
+        if mode == "over":
+            # Overwrite existing slots
+            start = target_index
+
+            if max(len(self.palette_colors), start + clipboard_length) > PALEDIT_MAXCOLORS:
+                QtW.QMessageBox.warning(
+                    self, "Palette Size Restriction",
+                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
+                    "Some colors will not be pasted."
+                )
+
+            # Paste over, and clamp palette at max length.
+            for _i, color in enumerate(self.clipboard_colors):
+                idx = start + _i
+                if idx < len(self.palette_colors):
+                    self.palette_colors[idx] = QColor(color)
+                elif idx < PALEDIT_MAXCOLORS:
+                    self.palette_colors.append(QColor(color))
+                else:
+                    break
+
+        else:
+            # Paste before or after the current index, shifting other colors accordingly
+            start = target_index if mode == "before" else target_index + 1
+
+            if len(self.palette_colors) + clipboard_length > PALEDIT_MAXCOLORS:
+                QtW.QMessageBox.warning(
+                    self, "Palette Size Restriction",
+                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
+                    "Some colors will not be pasted."
+                )
+
+            # Paste and shift, and clamp palette length.
+            for i, color in enumerate(self.clipboard_colors):
+                self.palette_colors.insert(start + i, QColor(color))
+
+        # Rebuild from the start index onward
+        self.rebuild_grid(start)
+
+        end = min(start + clipboard_length, len(self.palette_colors))
+
+        # Automatically select the newly pasted colors
+        self.active_index = start
+        self.selected_indices = list(range(start, end))
+        self.refresh_selection_ui()
+
+        self.unsaved_changes = True
+
     def clear_clipboard(self):
         self.clipboard_colors.clear()
         self.refresh_clipboard()
 
     def refresh_clipboard(self):
+        # Update clipboard header
+        count = len(self.clipboard_colors)
+        color_text = "color" if count == 1 else "colors"
+
+        self.btn_toggle_clipboard.setText(f"Clipboard: {count} {color_text}")
+        self.btn_clear_clipboard.setEnabled(count > 0)
+
         # Clear clipboard boxes
         for box in self.clipboard_boxes:
             box.deleteLater()
@@ -1075,6 +1248,32 @@ class PaletteEditor(QtW.QWidget):
             """)
             self.clipboard_grid_layout.addWidget(box, row, col)
             self.clipboard_boxes.append(box)
+
+    def toggle_clipboard(self, expanded):
+        # Collapse handler
+        if expanded:
+            # Allow the clipboard panel to grow again
+            self.clipboard_group.setMinimumHeight(0)
+            self.clipboard_group.setMaximumHeight(16777215)
+            self.clipboard_scroll.show()
+            self.clipboard_group.layout().activate()
+
+            self.btn_toggle_clipboard.setArrowType(Qt.ArrowType.DownArrow)
+
+            # Restore the divider position from before collapsing
+            if self.clipboard_splitter_sizes is not None:
+                self.palette_splitter.setSizes(self.clipboard_splitter_sizes)
+
+        else:
+            # Remember the user's divider position
+            self.clipboard_splitter_sizes = (self.palette_splitter.sizes())
+
+            self.clipboard_scroll.hide()
+            self.btn_toggle_clipboard.setArrowType(Qt.ArrowType.RightArrow)
+
+            # Shrink the panel to its header
+            self.clipboard_group.layout().activate()
+            self.clipboard_group.setFixedHeight(self.clipboard_group.sizeHint().height())
 
     def on_slider_changed(self):
         # Undo/Redo NOT called here. It's called in create_step_slider() instead
@@ -1159,10 +1358,7 @@ class PaletteEditor(QtW.QWidget):
     @unsaved_changes.setter
     def unsaved_changes(self, value=True):
         self._unsaved_changes = value
-        if value:
-            self.pal_select_group.setTitle("Select Palette (Unsaved Changes)")
-        else:
-            self.pal_select_group.setTitle("Select Palette")
+        self.unsaved_label.setVisible(value)
 
     def show_save_prompt_dialog(self):
         prompt = QtW.QMessageBox(self)

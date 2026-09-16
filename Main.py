@@ -10,6 +10,7 @@ def main():
     apply_theme(app, "dark")
 
     window = TriadApp(app)
+    #window.showMaximized()  # Temporary (To-Do: Make a preference option)
     window.show()
 
     # (Without this, the window immediately closes)

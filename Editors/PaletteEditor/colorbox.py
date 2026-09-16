@@ -181,15 +181,15 @@ class ColorBox(QtW.QFrame):
         action = menu.exec(global_pos)
 
         if action == act_cut:
-            self.copy_colors(self.index, True)
+            self.editor.copy_colors(True)
         elif action == act_copy:
-            self.copy_colors(self.index)
+            self.editor.copy_colors()
         elif action == act_paste_before:
-            self.paste_colors("before", self.index)
+            self.editor.paste_colors("before", self.index)
         elif action == act_paste_over:
-            self.paste_colors("over", self.index)
+            self.editor.paste_colors("over", self.index)
         elif action == act_paste_after:
-            self.paste_colors("after", self.index)
+            self.editor.paste_colors("after", self.index)
         elif action == act_insert_before:
             self.insert_color("before", self.index)
         elif action == act_insert_after:
@@ -198,78 +198,6 @@ class ColorBox(QtW.QFrame):
             self.clear_color(self.index)
         elif action == act_delete:
             self.delete_color(self.index)
-
-    def copy_colors(self, target_index, cut=False):
-        if not self.editor.selected_indices:
-            return
-
-        # Sort colors to keep them in visual order when pasting
-        sorted_indices = sorted(self.editor.selected_indices)
-        self.editor.clipboard_colors = [QColor(self.editor.palette_colors[idx]) for idx in sorted_indices]
-        self.editor.refresh_clipboard()
-
-        # If only Copying, stop here. Otherwise, remove copied colors
-        if cut:
-            # Delete in reverse order to avoid issues with index shifting
-            sorted_indices.reverse()
-            # Unsaved flag and undo state recording handled here
-            self.editor.remove_colors(sorted_indices)
-
-    def paste_colors(self, mode, target_index):
-        if not self.editor.clipboard_colors:
-            return
-
-        self.editor.push_undo_state()  # Record state before pasting colors
-
-        clipboard_length = len(self.editor.clipboard_colors)
-
-        if mode == "over":
-            # Overwrite existing slots
-            start = target_index
-
-            if max(len(self.editor.palette_colors), start + clipboard_length) > PALEDIT_MAXCOLORS:
-                QtW.QMessageBox.warning(
-                    self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
-                    "Some colors will not be pasted."
-                )
-
-            # Paste over, and clamp palette at max length.
-            for _i, color in enumerate(self.editor.clipboard_colors):
-                idx = start + _i
-                if idx < len(self.editor.palette_colors):
-                    self.editor.palette_colors[idx] = QColor(color)
-                elif idx < PALEDIT_MAXCOLORS:
-                    self.editor.palette_colors.append(QColor(color))
-                else:
-                    break
-
-        else:
-            # Paste before or after the current index, shifting other colors accordingly
-            start = target_index if mode == "before" else target_index + 1
-
-            if len(self.editor.palette_colors) + clipboard_length > PALEDIT_MAXCOLORS:
-                QtW.QMessageBox.warning(
-                    self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
-                    "Some colors will not be pasted."
-                )
-
-            # Paste and shift, and clamp palette length.
-            for i, color in enumerate(self.editor.clipboard_colors):
-                self.editor.palette_colors.insert(start + i, QColor(color))
-
-        # Rebuild from the start index onward
-        self.editor.rebuild_grid(start)
-
-        end = min(start + clipboard_length, len(self.editor.palette_colors))
-
-        # Automatically select the newly pasted colors
-        self.editor.active_index = start
-        self.editor.selected_indices = list(range(start, end))
-        self.editor.refresh_selection_ui()
-
-        self.editor.unsaved_changes = True
 
     def insert_color(self, mode, target_index):
         if len(self.editor.palette_colors) >= PALEDIT_MAXCOLORS:
