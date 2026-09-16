@@ -212,7 +212,20 @@ class Nemesis(Decompress):
 			xor_row = 0
 
 			while True:
-				index = self.read_bits(8, True)
+				# Devon's code (and the original decomp) originally performed a fixed 8-bit peek
+				# (A final Huffman code might need only 1 bit, yet the decoder still tries to peek at 8.)
+				# Raised an error if any of those eight bits extend beyond the supplied data.
+				# Instead, peek at up to 8 bits, and fill out the rest with zeroes
+
+				# Peek at up to eight real bits.
+				available = min(8, (len(self.data_input) - self.position) * 8 - self.bit)
+
+				if available <= 0:
+					raise IndexError("Not enough data left to decode a Nemesis run.")
+
+				# Zero-fill missing low bits for the table lookup only.
+				index = self.read_bits(available, True) << (8 - available)
+
 				if index >= 0b11111100:
 					self.read_bits(6)
 					pixel = self.read_bits(7)

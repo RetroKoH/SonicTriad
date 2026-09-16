@@ -11,7 +11,7 @@ from PaletteEditor.colorbox import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
 
-from Formats import decompress
+from Formats import compress, decompress
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -787,10 +787,17 @@ class SpriteEditor(QtW.QWidget):
         project_dir = getattr(main_win, "project_root_dir", None)
         start_dir = str(project_dir) if project_dir else ""
 
-        # Save dialog for new art file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "New Art Tile File", start_dir, "Art Tile Files (*.unc *.bin);;All Files (*)"
+        # Filetype filter
+        art_file_filter = (
+            "Uncompressed Art (*.bin *.unc);;"
+            "Nemesis Art (*.nem *.unc);;"
+            "Kosinski Art (*.kos *.unc);;"
+            "Moduled Kosinski Art (*.kosm *.unc);;"
+            "All Files (*)"
         )
+
+        # Open dialog for new art file
+        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "New Art Tile File", start_dir, art_file_filter)
 
         # If successful, create a new row under the art tab
         if file_path:
@@ -823,14 +830,16 @@ class SpriteEditor(QtW.QWidget):
 
                 compression = comp_combo.currentText()
 
-                if compression == "Nemesis":
-                    raw_data = decompress.nemesis(raw_data)
-                elif compression == "Kosinski":
-                    raw_data = decompress.kosinski(raw_data)
-                elif compression == "Kosinski-M":
-                    raw_data = decompress.kosinski_mod(raw_data)
-                elif compression != "Uncompressed":
-                    raise ValueError(f"Unsupported art compression format: {compression}")
+                # Decompress (Need to add Kos+ and Comper)
+                if compression != "Uncompressed":
+                    if compression == "Nemesis":
+                        raw_data = decompress.nemesis(raw_data)
+                    elif compression == "Kosinski":
+                        raw_data = decompress.kosinski(raw_data)
+                    elif compression == "Kosinski-M":
+                        raw_data = decompress.kosinski_mod(raw_data)
+                    elif compression != "Uncompressed":
+                        raise ValueError(f"Unsupported art compression format: {compression}")
 
                 # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
                 tile_count = len(raw_data) // 32
@@ -910,6 +919,17 @@ class SpriteEditor(QtW.QWidget):
                 continue
 
             try:
+                compression = comp_combo.currentText()
+
+                # Compress (Need to add Kos formats and Comper)
+                if compression != "Uncompressed":
+                    if compression == "Nemesis":
+                        art_data = bytes(compress.nemesis(art_data))
+                    else:
+                        raise ValueError(
+                            f"Unsupported art compression format for saving: {compression}"
+                        )
+
                 # Create directory structure if saving to a new path
                 path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1108,6 +1128,16 @@ class SpriteEditor(QtW.QWidget):
         comp_combo.addItems(["Uncompressed", "Nemesis", "Kosinski", "Kosinski-M"])
         comp_combo.setToolTip("Compression Format")
         comp_combo.setFixedWidth(110)
+
+        # Set compression dropdown based on file extension (if not .bin)
+        if file_path.endswith(".unc"):
+            comp_combo.setCurrentText("Uncompressed")
+        if file_path.endswith(".nem"):
+            comp_combo.setCurrentText("Nemesis")
+        elif file_path.endswith(".kos"):
+            comp_combo.setCurrentText("Kosinski")
+        elif file_path.endswith(".kosm"):
+            comp_combo.setCurrentText("Kosinski-M")
 
         art_row.addWidget(path_input, stretch=1)
         art_row.addWidget(comp_combo)
