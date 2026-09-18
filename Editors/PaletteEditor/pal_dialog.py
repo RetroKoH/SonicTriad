@@ -687,53 +687,6 @@ class GreyscaleDialog(AdvancedEditDialog):
         return QColor(md_grey, md_grey, md_grey)
 
 
-class InvertColorsDialog(AdvancedEditDialog):
-    # Signal to apply changes to the palette's colors
-    colors_applied = pyqtSignal(list)
-
-    def __init__(self, editor):
-        super().__init__(editor, title="Invert Colors")
-
-    def setup_custom_options(self, layout):
-        # -----------------------------
-        # LEFT PANEL MOD: Inversion Options
-        # -----------------------------
-        channel_group = QtW.QGroupBox("Invert Channels")
-        channel_layout = QtW.QVBoxLayout(channel_group)
-
-        # Unlike the original Sonic Triad, users can partially invert colors
-        self.chk_red = QtW.QCheckBox("Red")
-        self.chk_green = QtW.QCheckBox("Green")
-        self.chk_blue = QtW.QCheckBox("Blue")
-
-        # All are checked by default for full inversion
-        for chk in (self.chk_red, self.chk_green, self.chk_blue):
-            chk.setChecked(True)
-            chk.toggled.connect(self.update_preview)
-            channel_layout.addWidget(chk)
-
-        layout.addWidget(channel_group)
-        #layout.addStretch()
-        #content_layout.addLayout(layout, stretch=1)
-
-    def transform_color(self, original_color):
-        invert_r = self.chk_red.isChecked()
-        invert_g = self.chk_green.isChecked()
-        invert_b = self.chk_blue.isChecked()
-
-        # Snap current RGB channels to 3-bit Genesis steps (0 to 7)
-        r_step = snap_to_md_colors(original_color.red())
-        g_step = snap_to_md_colors(original_color.green())
-        b_step = snap_to_md_colors(original_color.blue())
-
-        # Invert MD steps (7 - step) if channel checkbox is enabled
-        new_r = MDCOLOR_VALUES[7 - r_step] if invert_r else original_color.red()
-        new_g = MDCOLOR_VALUES[7 - g_step] if invert_g else original_color.green()
-        new_b = MDCOLOR_VALUES[7 - b_step] if invert_b else original_color.blue()
-
-        return QColor(new_r, new_g, new_b)
-
-
 """ This window does not inherit AdvancedEditDialog
     I'll redo this later on.
 """

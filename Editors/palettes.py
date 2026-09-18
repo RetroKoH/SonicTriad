@@ -297,25 +297,67 @@ class PaletteEditor(QtW.QWidget):
         ]
 
         for idx, (label_text, ch) in enumerate(channels):
-            lbl = QtW.QLabel(f"{label_text}:")
+            lbl = QtW.QLabel(f"{label_text} Channel:")
 
             btn_minus = QtW.QPushButton("−")
             btn_plus = QtW.QPushButton("+")
+            btn_invert = QtW.QPushButton("Invert")
+            btn_clear = QtW.QPushButton("Clear")
             btn_minus.setFixedSize(QSize(40, 25))
             btn_plus.setFixedSize(QSize(40, 25))
+            btn_invert.setFixedSize(QSize(60, 25))
+            btn_clear.setFixedSize(QSize(55, 25))
 
-            btn_minus.setToolTip(f"Decrease {label_text.lower()} by one step")
-            btn_plus.setToolTip(f"Increase {label_text.lower()} by one step")
+            btn_minus.setToolTip(f"Decrease {label_text.lower()} by one step for all chosen colors")
+            btn_plus.setToolTip(f"Increase {label_text.lower()} by one step for all chosen colors")
+            btn_invert.setToolTip(f"Invert the {label_text.lower()} channel for all chosen colors")
+            btn_clear.setToolTip(f"Clear the {label_text.lower()} channel to 0 for all chosen colors")
 
-            btn_minus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(channel, -1))
-            btn_plus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(channel, 1))
+            btn_minus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(-1, channel))
+            btn_plus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(1, channel))
+            btn_invert.clicked.connect(lambda _, channel=ch: self.mass_invert_color(channel))
+            btn_clear.clicked.connect(lambda _, channel=ch: self.mass_clear_color(channel))
 
             batch_edit_layout.addWidget(lbl, idx, 0)
             batch_edit_layout.addWidget(btn_minus, idx, 1)
             batch_edit_layout.addWidget(btn_plus, idx, 2)
+            batch_edit_layout.addWidget(btn_invert, idx, 3)
+            batch_edit_layout.addWidget(btn_clear, idx, 4)
+
+        rows = len(channels)
+        lbl = QtW.QLabel("All Channels:")
+        batch_edit_layout.addWidget(lbl, rows, 0)
+
+        # Decrease all three channels within the chosen batch scope
+        btn_minus_colors = QtW.QPushButton("-")
+        btn_minus_colors.setToolTip("Decrease RGB channels for all chosen colors")
+        btn_minus_colors.clicked.connect(lambda: self.mass_shift_color(-1))
+        batch_edit_layout.addWidget(btn_minus_colors, rows, 1)
+        btn_minus_colors.setFixedSize(QSize(40, 25))
+
+        # Increase all three channels within the chosen batch scope
+        btn_plus_colors = QtW.QPushButton("+")
+        btn_plus_colors.setToolTip("Increase RGB channels for all chosen colors")
+        btn_plus_colors.clicked.connect(lambda: self.mass_shift_color(1))
+        batch_edit_layout.addWidget(btn_plus_colors, rows, 2)
+        btn_plus_colors.setFixedSize(QSize(40, 25))
+
+        # Invert all three channels within the chosen batch scope
+        btn_invert_colors = QtW.QPushButton("Invert")
+        btn_invert_colors.setToolTip("Invert RGB channels for all chosen colors")
+        btn_invert_colors.clicked.connect(lambda: self.mass_invert_color())
+        batch_edit_layout.addWidget(btn_invert_colors, rows, 3)
+        btn_invert_colors.setFixedSize(QSize(60, 25))
+
+        # Clear all three channels within the chosen batch scope
+        btn_clear_colors = QtW.QPushButton("Clear")
+        btn_clear_colors.setToolTip("Invert RGB channels for all chosen colors")
+        btn_clear_colors.clicked.connect(lambda: self.mass_clear_color())
+        batch_edit_layout.addWidget(btn_clear_colors, rows, 4)
+        btn_clear_colors.setFixedSize(QSize(55, 25))
 
         # Keep the controls together, with spare space on the right
-        batch_edit_layout.setColumnStretch(3, 1)
+        batch_edit_layout.setColumnStretch(4, 1)
 
         control_layout.addLayout(batch_edit_layout)
 
@@ -360,22 +402,19 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_adv.setColumnStretch(0, 1)
         btn_grid_adv.setColumnStretch(1, 1)
 
-        btn_blend = QtW.QPushButton("Color Blend")
-        btn_grey = QtW.QPushButton("Greyscale")
-        btn_invert = QtW.QPushButton("Invert Colors")
-        btn_gradient = QtW.QPushButton("Build Gradient")
-        btn_extract = QtW.QPushButton("Extract Palette")
+        btn_blend = QtW.QPushButton("Color Blending")
+        btn_grey = QtW.QPushButton("Greyscaling")
+        btn_gradient = QtW.QPushButton("Build Color Gradient")
+        btn_extract = QtW.QPushButton("Extract Palette from Image")
 
         btn_blend.clicked.connect(self.adv_blend_colors)
         btn_grey.clicked.connect(self.adv_greyscale_colors)
-        btn_invert.clicked.connect(self.adv_invert_colors)
         btn_gradient.clicked.connect(self.adv_build_gradient)
         btn_extract.clicked.connect(self.adv_extract_palette)
 
-        btn_grid_adv.addWidget(btn_blend, 0, 0)
-        btn_grid_adv.addWidget(btn_grey, 0, 1)
-        btn_grid_adv.addWidget(btn_invert, 1, 0)
-        btn_grid_adv.addWidget(btn_gradient, 1, 1)
+        btn_grid_adv.addWidget(btn_blend, 0, 0, 1, 1)
+        btn_grid_adv.addWidget(btn_grey, 0, 1, 1, 1)
+        btn_grid_adv.addWidget(btn_gradient, 1, 0, 1, 2)
         btn_grid_adv.addWidget(btn_extract, 2, 0, 1, 2)
 
         control_layout.addLayout(btn_grid_adv)
@@ -697,7 +736,74 @@ class PaletteEditor(QtW.QWidget):
             self.refresh_selection_ui()
             self.unsaved_changes = True
 
-    def mass_shift_color(self, channel, direction):
+    def mass_invert_color(self, channel = None):
+        # Determine target scope
+        if self.opt_mass_all.isChecked():
+            target_indices = range(len(self.palette_colors))
+        else:
+            target_indices = self.selected_indices
+
+        if not target_indices:
+            return
+
+        self.push_undo_state()  # Record state before modifying the palette
+
+        for idx in target_indices:
+            color = self.palette_colors[idx]
+            new_color = QColor(color)
+
+            # Reverse enabled channels across the eight supported steps
+            if channel in (None, 'r'):
+                step = snap_to_md_colors(color.red())
+                new_color.setRed(MDCOLOR_VALUES[7 - step])
+
+            if channel in (None, 'g'):
+                step = snap_to_md_colors(color.green())
+                new_color.setGreen(MDCOLOR_VALUES[7 - step])
+
+            if channel in (None, 'b'):
+                step = snap_to_md_colors(color.blue())
+                new_color.setBlue(MDCOLOR_VALUES[7 - step])
+
+            self.palette_colors[idx] = new_color
+            self.boxes[idx].set_color(new_color)
+
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
+
+    def mass_clear_color(self, channel = None):
+        # Determine target scope
+        if self.opt_mass_all.isChecked():
+            target_indices = range(len(self.palette_colors))
+        else:
+            target_indices = self.selected_indices
+
+        if not target_indices:
+            return
+
+        self.push_undo_state()  # Record state before modifying the palette
+
+        for idx in target_indices:
+            color = self.palette_colors[idx]
+            new_color = QColor(color)
+
+            # Clear enabled channels
+            if channel in (None, 'r'):
+                new_color.setRed(0)
+
+            if channel in (None, 'g'):
+                new_color.setGreen(0)
+
+            if channel in (None, 'b'):
+                new_color.setBlue(0)
+
+            self.palette_colors[idx] = new_color
+            self.boxes[idx].set_color(new_color)
+
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
+
+    def mass_shift_color(self, direction, channel = None):
         self.push_undo_state()  # Record state before modifying the palette
 
         # Determine target scope
@@ -713,11 +819,11 @@ class PaletteEditor(QtW.QWidget):
             b_step = snap_to_md_colors(color.blue())
 
             # Apply shift and clamp values
-            if channel == 'r':
+            if channel in (None, 'r'):
                 r_step = max(0, min(7, r_step + direction))
-            elif channel == 'g':
+            if channel in (None, 'g'):
                 g_step = max(0, min(7, g_step + direction))
-            elif channel == 'b':
+            if channel in (None, 'b'):
                 b_step = max(0, min(7, b_step + direction))
 
             new_color = QColor(MDCOLOR_VALUES[r_step], MDCOLOR_VALUES[g_step], MDCOLOR_VALUES[b_step])
@@ -746,16 +852,6 @@ class PaletteEditor(QtW.QWidget):
 
         # Opens new window for effect preview
         self.active_advanced_dialog = GreyscaleDialog(self)
-        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
-        self.active_advanced_dialog.show()
-
-    def adv_invert_colors(self):
-        # If this window is already open, bring it to focus instead of opening a duplicate
-        if self.check_active_dialog():
-            return
-
-        # Opens new window for effect preview
-        self.active_advanced_dialog = InvertColorsDialog(self)
         self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
         self.active_advanced_dialog.show()
 
