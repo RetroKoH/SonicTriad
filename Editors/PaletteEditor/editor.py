@@ -1337,56 +1337,58 @@ class PaletteEditor(QtW.QWidget):
         if not self.clipboard_colors:
             return
 
-        self.push_undo_state()  # Record state before pasting colors
-
         clipboard_length = len(self.clipboard_colors)
 
+        # Determine where to paste and how many colors will fit.
         if mode == "over":
-            # Overwrite existing slots
             start = target_index
+            available = max(0, PALEDIT_MAXCOLORS - start)
+        else:
+            start = target_index if mode == "before" else target_index + 1
+            available = max(0, PALEDIT_MAXCOLORS - len(self.palette_colors))
 
-            if max(len(self.palette_colors), start + clipboard_length) > PALEDIT_MAXCOLORS:
-                QtW.QMessageBox.warning(
-                    self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
-                    "Some colors will not be pasted."
-                )
+        # Final number of colors to paste
+        pasted_count = min(clipboard_length, available)
 
-            # Paste over, and clamp palette at max length.
-            for _i, color in enumerate(self.clipboard_colors):
+        # If nothing changes, don't record state or change selection
+        if pasted_count == 0:
+            return
+
+        elif pasted_count < clipboard_length:
+            QtW.QMessageBox.warning(
+                self,"Palette Size Restriction",
+                f"Only {pasted_count} of {clipboard_length} clipboard "
+                "colors can be pasted without exceeding the color limit."
+            )
+
+        self.push_undo_state()  # Record state before pasting colors
+
+        # Isolate actual colors that will be pasted (if not all)
+        colors_to_paste = self.clipboard_colors[:pasted_count]
+
+        # Overwrite existing slots, extending the palette if needed
+        if mode == "over":
+            for _i, color in enumerate(colors_to_paste):
                 idx = start + _i
+
                 if idx < len(self.palette_colors):
                     self.palette_colors[idx] = QColor(color)
-                elif idx < PALEDIT_MAXCOLORS:
-                    self.palette_colors.append(QColor(color))
                 else:
-                    break
+                    self.palette_colors.append(QColor(color))
 
+        # Paste before or after the current index, shifting colors accordingly
         else:
-            # Paste before or after the current index, shifting other colors accordingly
-            start = target_index if mode == "before" else target_index + 1
+            for _i, color in enumerate(colors_to_paste):
+                self.palette_colors.insert(start + _i, QColor(color))
 
-            if len(self.palette_colors) + clipboard_length > PALEDIT_MAXCOLORS:
-                QtW.QMessageBox.warning(
-                    self, "Palette Size Restriction",
-                    f"Pasting {clipboard_length} colors here exceeds the color limit. " +
-                    "Some colors will not be pasted."
-                )
-
-            # Paste and shift, and clamp palette length.
-            for i, color in enumerate(self.clipboard_colors):
-                self.palette_colors.insert(start + i, QColor(color))
-
-        # Rebuild from the start index onward
-        self.rebuild_grid(start)
-
-        end = min(start + clipboard_length, len(self.palette_colors))
-
-        # Automatically select the newly pasted colors
+        # Select pasted colors
+        end = start + pasted_count
         self.active_index = start
         self.selected_indices = list(range(start, end))
-        self.refresh_selection_ui()
 
+        # Refresh palette
+        self.rebuild_grid(start)
+        self.refresh_selection_ui()
         self.unsaved_changes = True
 
     def clear_clipboard(self):
