@@ -681,8 +681,11 @@ class PaletteEditor(QtW.QWidget):
         # Push palette state to redo stack
         self.redo_stack.append([QColor(c) for c in self.palette_colors])
 
-        # Restore previous state
+        # Restore previous state and validate selection
         self.palette_colors = self.undo_stack.pop()
+        self.validate_selection()
+
+        # Refresh palette
         self.rebuild_grid()
         self.refresh_selection_ui()
         self.update_undo_redo()
@@ -695,8 +698,10 @@ class PaletteEditor(QtW.QWidget):
         # Push palette state to undo stack
         self.undo_stack.append([QColor(c) for c in self.palette_colors])
 
-        # Restore next state
+        # Restore next state and validate selection
         self.palette_colors = self.redo_stack.pop()
+        self.validate_selection()
+
         self.rebuild_grid()
         self.refresh_selection_ui()
         self.update_undo_redo()
@@ -724,21 +729,10 @@ class PaletteEditor(QtW.QWidget):
 
         # Retracting palette size
         else:
-            # Truncate the palette
             self.palette_colors = self.palette_colors[:new_size]
             self.rebuild_grid(new_size)
 
-            # Filter out-of-bounds selected indices
-            self.selected_indices = [idx for idx in self.selected_indices if idx < new_size]
-
-            # If all selected colors were truncated, fallback to the last valid color
-            if not self.selected_indices:
-                self.selected_indices = [new_size - 1]
-
-            # Adjust the active index if out-of-bounds
-            if self.active_index >= new_size:
-                self.active_index = self.selected_indices[-1]
-
+            self.validate_selection()
             self.refresh_selection_ui()
 
         self.unsaved_changes = True
@@ -769,6 +763,26 @@ class PaletteEditor(QtW.QWidget):
 
         self.refresh_selection_ui()
         self.unsaved_changes = True
+
+    def validate_selection(self):
+        # Filter out-of-bounds selected indices
+        self.selected_indices = [
+            idx for idx in self.selected_indices
+            if 0 <= idx < len(self.palette_colors)
+        ]
+
+        # Adjust the active index if out-of-bounds
+        self.active_index = max(
+            0, min(self.active_index, len(self.palette_colors) - 1)
+        )
+
+        # Always retain at least one selected color
+        if not self.selected_indices:
+            self.selected_indices = [self.active_index]
+
+        # The active color should belong to the selection
+        elif self.active_index not in self.selected_indices:
+            self.active_index = self.selected_indices[-1]
 
     # Tied to ColorBox resizing
     def eventFilter(self, a0, event):
@@ -1341,9 +1355,11 @@ class PaletteEditor(QtW.QWidget):
 
         # Determine where to paste and how many colors will fit.
         if mode == "over":
+            # Capacity depends on the starting index because slots get overwritten
             start = target_index
             available = max(0, PALEDIT_MAXCOLORS - start)
         else:
+            # Capacity depends on the current palette length because pasted colors adds new slots
             start = target_index if mode == "before" else target_index + 1
             available = max(0, PALEDIT_MAXCOLORS - len(self.palette_colors))
 
