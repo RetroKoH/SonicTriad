@@ -141,7 +141,7 @@ class ColorLibraryDialog(QtW.QDialog):
         self.cram_label = QtW.QLabel()
         self.hex_label = QtW.QLabel()
 
-        for title, label in (("CRAM word", self.cram_label), ("Hex color", self.hex_label)):
+        for title, label in (("CRAM code (0B GR)", self.cram_label), ("Hex color (RR GG BB)", self.hex_label)):
             row = QtW.QHBoxLayout()
             row.addWidget(QtW.QLabel(title))
             row.addStretch()
@@ -360,7 +360,7 @@ class AdvancedEditDialog(QtW.QDialog):
 
 class ColorBlendDialog(AdvancedEditDialog):
     def __init__(self, editor):
-        super().__init__(editor, title="Bland Colors")
+        super().__init__(editor, title="Blend Colors")
 
     def setup_custom_options(self, layout):
         # -----------------------------
@@ -434,42 +434,164 @@ class GreyscaleDialog(AdvancedEditDialog):
         # -----------------------------
         method_group = QtW.QGroupBox("Greyscale Method")
         method_layout = QtW.QVBoxLayout(method_group)
+        options_group = QtW.QGroupBox("Greyscale Options")
+        options_layout = QtW.QVBoxLayout(options_group)
 
-        self.gs_luminosity = QtW.QRadioButton("Luminosity")
+        # Greyscale Method
+        options_layout.addWidget(QtW.QLabel("Method:"))
+        self.combo_method = QtW.QComboBox()
+        self.combo_method.addItems([
+            "Luminosity",
+            "Lightness",
+            "Average",
+        ])
+        options_layout.addWidget(self.combo_method)
+        self.combo_method.currentIndexChanged.connect(self.update_preview)
+
+        separator = QtW.QFrame()
+        separator.setFrameShape(QtW.QFrame.Shape.HLine)
+        separator.setFrameShadow(QtW.QFrame.Shadow.Sunken)
+
+        options_layout.addSpacing(8)
+        options_layout.addWidget(separator)
+        options_layout.addSpacing(8)
+
+        self.chk_color_popping = QtW.QCheckBox("Color Popping")
+        options_layout.addWidget(self.chk_color_popping)
+        self.chk_color_popping.toggled.connect(self.on_color_popping_toggled)
+
+        self.pop_controls = QtW.QWidget()
+        pop_layout = QtW.QVBoxLayout(self.pop_controls)
+        pop_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Default target: red
+        self.pop_color = QColor(MDCOLOR_VALUES[7], 0, 0)
+        pop_layout.addWidget(QtW.QLabel("Target Color:"))
+
+        color_layout = QtW.QHBoxLayout()
+        self.pop_preview = QtW.QFrame()
+        self.pop_preview.setFixedSize(40, 28)
+
+        self.btn_pop_color = QtW.QPushButton("Select Color...")
+        self.btn_pop_color.setAutoDefault(False)
+        self.btn_pop_color.clicked.connect(self.choose_pop_color)
+
+        color_layout.addWidget(self.pop_preview)
+        color_layout.addWidget(self.btn_pop_color)
+        pop_layout.addLayout(color_layout)
+
+        """ To-Do: Add to tooltips later
         self.gs_luminosity.setToolTip("Weighted (0.299R, 0.587G, 0.114B)")
-        self.gs_luminosity.setChecked(True)  # Default option
-
-        self.gs_lightness = QtW.QRadioButton("Lightness")
         self.gs_lightness.setToolTip("(Max(R,G,B) + Min(R,G,B)) / 2")
+        self.gs_average.setToolTip("(R + G + B) / 3")"""
 
-        self.gs_average = QtW.QRadioButton("Average")
-        self.gs_average.setToolTip("(R + G + B) / 3")
+        # Hue Tolerance
+        pop_layout.addWidget(QtW.QLabel("Hue Tolerance:"))
 
-        for rad in (self.gs_luminosity, self.gs_lightness, self.gs_average):
-            rad.toggled.connect(self.update_preview)
-            method_layout.addWidget(rad)
+        tolerance_layout = QtW.QHBoxLayout()
 
-        layout.addWidget(method_group)
-        #layout.addStretch()
-        #content_layout.addLayout(layout, stretch=1)
+        self.pop_tolerance_slider = QtW.QSlider(Qt.Orientation.Horizontal)
+        self.pop_tolerance_slider.setRange(0, 100)
+
+        self.pop_tolerance = QtW.QSpinBox()
+        self.pop_tolerance.setRange(0, 100)
+        self.pop_tolerance.setSuffix("%")
+        self.pop_tolerance.setSingleStep(5)
+        self.pop_tolerance.setKeyboardTracking(False)
+
+        self.pop_tolerance_slider.valueChanged.connect(self.on_tolerance_changed)
+        self.pop_tolerance.valueChanged.connect(self.on_tolerance_changed)
+
+        self.pop_tolerance.setToolTip(
+            "0% preserves only matching hues. "
+            "100% includes all hues."
+        )
+
+        tolerance_layout.addWidget(self.pop_tolerance_slider)
+        tolerance_layout.addWidget(self.pop_tolerance)
+        pop_layout.addLayout(tolerance_layout)
+
+        options_layout.addWidget(self.pop_controls)
+        layout.addWidget(options_group)
+
+        # Start with ordinary greyscale
+        self.pop_controls.setEnabled(False)
+        self.update_pop_preview()
+
+    def on_tolerance_changed(self, value):
+        # Snap to the nearest multiple of five
+        snapped = ((value + 2) // 5) * 5
+
+        # Synchronize without triggering another valueChanged signal
+        self.pop_tolerance_slider.blockSignals(True)
+        self.pop_tolerance.blockSignals(True)
+
+        self.pop_tolerance_slider.setValue(snapped)
+        self.pop_tolerance.setValue(snapped)
+
+        self.pop_tolerance_slider.blockSignals(False)
+        self.pop_tolerance.blockSignals(False)
+
+        self.update_preview()
+
+    def on_color_popping_toggled(self, enabled):
+        self.pop_controls.setEnabled(enabled)
+        self.update_preview()
+
+    def choose_pop_color(self):
+        dialog = ColorLibraryDialog(self.pop_color, self)
+
+        if dialog.exec() == QtW.QDialog.DialogCode.Accepted:
+            self.pop_color = dialog.get_color()
+            self.update_pop_preview()
+            self.update_preview()
+
+    def update_pop_preview(self):
+        self.pop_preview.setStyleSheet(
+            f"background-color: {self.pop_color.name()}; "
+            "border: 1px solid #666;"
+        )
+        self.pop_preview.setToolTip(self.pop_color.name().upper())
+
+    def matches_pop_hue(self, color):
+        # Neutral colors have no hue to match
+        if color.saturation() == 0 or self.pop_color.saturation() == 0:
+            return False
+
+        hue = color.hsvHueF()
+        target_hue = self.pop_color.hsvHueF()
+
+        # Shortest distance around the hue circle, in the range 0–0.5
+        difference = abs(hue - target_hue)
+        hue_distance = min(difference, 1.0 - difference)
+
+        # 0% = exact hue; 100% = the full hue circle
+        tolerance = self.pop_tolerance.value() / 200.0
+        return hue_distance <= tolerance + 1e-9
 
     def transform_color(self, original_color):
+        # Test the original hue before converting to greyscale
+        if (self.chk_color_popping.isChecked() and self.matches_pop_hue(original_color)):
+            return QColor(original_color)
+
+        # Convert to greyscale
         _r, _g, _b = original_color.red(), original_color.green(), original_color.blue()
 
         # Calculate grey color value based on selected greyscale method
-        if self.gs_luminosity.isChecked():
+        method = self.combo_method.currentIndex()
+
+        if method == 0:  # Luminosity
             grey_val = int(0.299 * _r + 0.587 * _g + 0.114 * _b)
-        elif self.gs_lightness.isChecked():
+        elif method == 1:  # Lightness
             grey_val = int((max(_r, _g, _b) + min(_r, _g, _b)) / 2)
         else:  # Average
             grey_val = int((_r + _g + _b) / 3)
 
         # Snap calculated grey to Mega Drive color limits
-        step = PaletteEditor.snap_to_md_colors(grey_val)
+        step = snap_to_md_colors(grey_val)
         md_grey = MDCOLOR_VALUES[step]
 
         return QColor(md_grey, md_grey, md_grey)
-
 
 class InvertColorsDialog(AdvancedEditDialog):
     # Signal to apply changes to the palette's colors
@@ -506,9 +628,9 @@ class InvertColorsDialog(AdvancedEditDialog):
         invert_b = self.chk_blue.isChecked()
 
         # Snap current RGB channels to 3-bit Genesis steps (0 to 7)
-        r_step = PaletteEditor.snap_to_md_colors(original_color.red())
-        g_step = PaletteEditor.snap_to_md_colors(original_color.green())
-        b_step = PaletteEditor.snap_to_md_colors(original_color.blue())
+        r_step = snap_to_md_colors(original_color.red())
+        g_step = snap_to_md_colors(original_color.green())
+        b_step = snap_to_md_colors(original_color.blue())
 
         # Invert MD steps (7 - step) if channel checkbox is enabled
         new_r = MDCOLOR_VALUES[7 - r_step] if invert_r else original_color.red()
