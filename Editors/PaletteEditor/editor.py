@@ -328,10 +328,10 @@ class PaletteEditor(QtW.QWidget):
             btn_invert.setToolTip(f"Invert the {label_text.lower()} channel for all chosen colors")
             btn_clear.setToolTip(f"Clear the {label_text.lower()} channel to 0 for all chosen colors")
 
-            btn_minus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(-1, channel))
-            btn_plus.clicked.connect(lambda _, channel=ch: self.mass_shift_color(1, channel))
-            btn_invert.clicked.connect(lambda _, channel=ch: self.mass_invert_color(channel))
-            btn_clear.clicked.connect(lambda _, channel=ch: self.mass_clear_color(channel))
+            btn_minus.clicked.connect(lambda _, channel=ch: self.batch_shift_color(-1, channel))
+            btn_plus.clicked.connect(lambda _, channel=ch: self.batch_shift_color(1, channel))
+            btn_invert.clicked.connect(lambda _, channel=ch: self.batch_invert_color(channel))
+            btn_clear.clicked.connect(lambda _, channel=ch: self.batch_clear_color(channel))
 
             batch_edit_layout.addWidget(lbl, idx, 0)
             batch_edit_layout.addWidget(btn_minus, idx, 1)
@@ -346,28 +346,28 @@ class PaletteEditor(QtW.QWidget):
         # Decrease all three channels within the chosen batch scope
         btn_minus_colors = QtW.QPushButton("-")
         btn_minus_colors.setToolTip("Decrease RGB channels for all chosen colors")
-        btn_minus_colors.clicked.connect(lambda: self.mass_shift_color(-1))
+        btn_minus_colors.clicked.connect(lambda: self.batch_shift_color(-1))
         batch_edit_layout.addWidget(btn_minus_colors, rows, 1)
         btn_minus_colors.setFixedSize(QSize(40, 25))
 
         # Increase all three channels within the chosen batch scope
         btn_plus_colors = QtW.QPushButton("+")
         btn_plus_colors.setToolTip("Increase RGB channels for all chosen colors")
-        btn_plus_colors.clicked.connect(lambda: self.mass_shift_color(1))
+        btn_plus_colors.clicked.connect(lambda: self.batch_shift_color(1))
         batch_edit_layout.addWidget(btn_plus_colors, rows, 2)
         btn_plus_colors.setFixedSize(QSize(40, 25))
 
         # Invert all three channels within the chosen batch scope
         btn_invert_colors = QtW.QPushButton("Invert")
         btn_invert_colors.setToolTip("Invert RGB channels for all chosen colors")
-        btn_invert_colors.clicked.connect(lambda: self.mass_invert_color())
+        btn_invert_colors.clicked.connect(lambda: self.batch_invert_color())
         batch_edit_layout.addWidget(btn_invert_colors, rows, 3)
         btn_invert_colors.setFixedSize(QSize(60, 25))
 
         # Clear all three channels within the chosen batch scope
         btn_clear_colors = QtW.QPushButton("Clear")
         btn_clear_colors.setToolTip("Invert RGB channels for all chosen colors")
-        btn_clear_colors.clicked.connect(lambda: self.mass_clear_color())
+        btn_clear_colors.clicked.connect(lambda: self.batch_clear_color())
         batch_edit_layout.addWidget(btn_clear_colors, rows, 4)
         btn_clear_colors.setFixedSize(QSize(55, 25))
 
@@ -674,6 +674,26 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.populate_palette_list(self.project_palette_paths)
 
+    def validate_selection(self):
+        # Filter out-of-bounds selected indices
+        self.selected_indices = [
+            idx for idx in self.selected_indices
+            if 0 <= idx < len(self.palette_colors)
+        ]
+
+        # Adjust the active index if out-of-bounds
+        self.active_index = max(
+            0, min(self.active_index, len(self.palette_colors) - 1)
+        )
+
+        # Always retain at least one selected color
+        if not self.selected_indices:
+            self.selected_indices = [self.active_index]
+
+        # The active color should belong to the selection
+        elif self.active_index not in self.selected_indices:
+            self.active_index = self.selected_indices[-1]
+
     def edit_palette_undo(self):
         if not self.undo_stack:
             return
@@ -764,26 +784,6 @@ class PaletteEditor(QtW.QWidget):
         self.refresh_selection_ui()
         self.unsaved_changes = True
 
-    def validate_selection(self):
-        # Filter out-of-bounds selected indices
-        self.selected_indices = [
-            idx for idx in self.selected_indices
-            if 0 <= idx < len(self.palette_colors)
-        ]
-
-        # Adjust the active index if out-of-bounds
-        self.active_index = max(
-            0, min(self.active_index, len(self.palette_colors) - 1)
-        )
-
-        # Always retain at least one selected color
-        if not self.selected_indices:
-            self.selected_indices = [self.active_index]
-
-        # The active color should belong to the selection
-        elif self.active_index not in self.selected_indices:
-            self.active_index = self.selected_indices[-1]
-
     # Tied to ColorBox resizing
     def eventFilter(self, a0, event):
         if (
@@ -832,139 +832,95 @@ class PaletteEditor(QtW.QWidget):
             self.refresh_selection_ui()
             self.unsaved_changes = True
 
-    def mass_invert_color(self, channel = None):
-        # Determine target scope
+    def batch_target_scope(self):
         if self.opt_mass_all.isChecked():
-            target_indices = range(len(self.palette_colors))
-        else:
-            target_indices = self.selected_indices
+            return range(len(self.palette_colors))
+        return tuple(self.selected_indices)
+
+    def batch_apply_edit(self, edit_color):
+        target_indices = self.batch_target_scope()
 
         if not target_indices:
             return
 
-        self.push_undo_state()  # Record state before modifying the palette
+        changes = []    # Buffer palette
 
-        for idx in target_indices:
-            color = self.palette_colors[idx]
-            new_color = QColor(color)
+        for _i in target_indices:
+            original_color = self.palette_colors[_i]
+            new_color = QColor(original_color)
 
-            # Reverse enabled channels across the eight supported steps
+            # Call invert, clear, or +/- adjust here
+            edit_color(new_color)
+
+            if new_color != original_color:
+                changes.append((_i, new_color))
+
+        # Stop if nothing changed
+        if not changes:
+            return
+
+        self.push_undo_state()  # Record state before applying changes
+
+        # Modify only what's actually changed
+        for idx, new_color in changes:
+            self.palette_colors[idx] = new_color
+            self.boxes[idx].set_color(new_color)
+
+        self.refresh_selection_ui()
+        self.unsaved_changes = True
+
+    def batch_invert_color(self, channel=None):
+        def invert_color(color):
+            # Reverse selected color channels (None = all)
             if channel in (None, 'r'):
                 step = snap_to_md_colors(color.red())
-                new_color.setRed(MDCOLOR_VALUES[7 - step])
+                color.setRed(MDCOLOR_VALUES[7 - step])
 
             if channel in (None, 'g'):
                 step = snap_to_md_colors(color.green())
-                new_color.setGreen(MDCOLOR_VALUES[7 - step])
+                color.setGreen(MDCOLOR_VALUES[7 - step])
 
             if channel in (None, 'b'):
                 step = snap_to_md_colors(color.blue())
-                new_color.setBlue(MDCOLOR_VALUES[7 - step])
+                color.setBlue(MDCOLOR_VALUES[7 - step])
 
-            self.palette_colors[idx] = new_color
-            self.boxes[idx].set_color(new_color)
+        # Run the above function for the whole batch (Remembering channel)
+        self.batch_apply_edit(invert_color)
 
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    def mass_clear_color(self, channel = None):
-        # Determine target scope
-        if self.opt_mass_all.isChecked():
-            target_indices = range(len(self.palette_colors))
-        else:
-            target_indices = self.selected_indices
-
-        if not target_indices:
-            return
-
-        self.push_undo_state()  # Record state before modifying the palette
-
-        for idx in target_indices:
-            color = self.palette_colors[idx]
-            new_color = QColor(color)
-
-            # Clear enabled channels
+    def batch_clear_color(self, channel=None):
+        def clear_color(color):
+            # Clear selected color channels (None = all)
             if channel in (None, 'r'):
-                new_color.setRed(0)
+                color.setRed(0)
 
             if channel in (None, 'g'):
-                new_color.setGreen(0)
+                color.setGreen(0)
 
             if channel in (None, 'b'):
-                new_color.setBlue(0)
+                color.setBlue(0)
 
-            self.palette_colors[idx] = new_color
-            self.boxes[idx].set_color(new_color)
+        # Run the above function for the whole batch (Remembering channel)
+        self.batch_apply_edit(clear_color)
 
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
+    def batch_shift_color(self, direction, channel=None):
+        def shift_color(color):
+            if channel in (None, "r"):
+                _r = snap_to_md_colors(color.red())
+                _r = max(0, min(7, _r + direction))
+                color.setRed(MDCOLOR_VALUES[_r])
 
-    def mass_shift_color(self, direction, channel = None):
-        self.push_undo_state()  # Record state before modifying the palette
+            if channel in (None, "g"):
+                _g = snap_to_md_colors(color.green())
+                _g = max(0, min(7, _g + direction))
+                color.setGreen(MDCOLOR_VALUES[_g])
 
-        # Determine target scope
-        if self.opt_mass_all.isChecked():
-            target_indices = range(len(self.palette_colors))
-        else:
-            target_indices = self.selected_indices
+            if channel in (None, "b"):
+                _b = snap_to_md_colors(color.blue())
+                _b = max(0, min(7, _b + direction))
+                color.setBlue(MDCOLOR_VALUES[_b])
 
-        for _i in target_indices:
-            color = self.palette_colors[_i]
-            r_step = snap_to_md_colors(color.red())
-            g_step = snap_to_md_colors(color.green())
-            b_step = snap_to_md_colors(color.blue())
-
-            # Apply shift and clamp values
-            if channel in (None, 'r'):
-                r_step = max(0, min(7, r_step + direction))
-            if channel in (None, 'g'):
-                g_step = max(0, min(7, g_step + direction))
-            if channel in (None, 'b'):
-                b_step = max(0, min(7, b_step + direction))
-
-            new_color = QColor(MDCOLOR_VALUES[r_step], MDCOLOR_VALUES[g_step], MDCOLOR_VALUES[b_step])
-
-            # Update palette
-            self.palette_colors[_i] = new_color
-            self.boxes[_i].set_color(new_color)
-
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    def adv_blend_colors(self):
-        # If this window is already open, bring it to focus instead of opening a duplicate
-        if self.check_active_dialog():
-            return
-
-        # Opens new window for effect preview
-        self.active_advanced_dialog = ColorBlendDialog(self)
-        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
-        self.active_advanced_dialog.show()
-
-    def adv_greyscale_colors(self):
-        # If this window is already open, bring it to focus instead of opening a duplicate
-        if self.check_active_dialog():
-            return
-
-        # Opens new window for effect preview
-        self.active_advanced_dialog = GreyscaleDialog(self)
-        self.active_advanced_dialog.colors_applied.connect(self.apply_color_effect)
-        self.active_advanced_dialog.show()
-
-    def adv_build_gradient(self):
-        if self.check_active_dialog():
-            return
-
-        self.active_advanced_dialog = GradientBuilderDialog(self)
-        self.active_advanced_dialog.gradient_applied.connect(self.apply_gradient)
-        self.active_advanced_dialog.show()
-
-    def adv_extract_palette(self):
-        if self.check_active_dialog():
-            return
-
-        self.active_advanced_dialog = PaletteExtractDialog(self)
-        self.active_advanced_dialog.show()
+        # Run the above function for the whole batch (Remembering channel and direction)
+        self.batch_apply_edit(shift_color)
 
     def check_active_dialog(self):
         # If an advanced dialog is open, bring it to focus
@@ -973,6 +929,34 @@ class PaletteEditor(QtW.QWidget):
             self.active_advanced_dialog.activateWindow()
             return True
         return False
+
+    def open_advanced_dialog(self, dialog_class, signal_name=None, callback=None):
+        # Focus the existing dialog instead of opening another (to prevent duplication)
+        if self.check_active_dialog():
+            return
+
+        # Opens new window
+        dialog = dialog_class(self)
+
+        # Set up callback command (Applies to all but adv_extract_palette)
+        if signal_name is not None:
+            getattr(dialog, signal_name).connect(callback)
+
+        # Keep a reference for the duplication check at the start
+        self.active_advanced_dialog = dialog
+        dialog.show()
+
+    def adv_blend_colors(self):
+        self.open_advanced_dialog(ColorBlendDialog,"colors_applied", self.apply_color_effect)
+
+    def adv_greyscale_colors(self):
+        self.open_advanced_dialog(GreyscaleDialog, "colors_applied", self.apply_color_effect)
+
+    def adv_build_gradient(self):
+        self.open_advanced_dialog(GradientBuilderDialog, "gradient_applied", self.apply_gradient)
+
+    def adv_extract_palette(self):
+        self.open_advanced_dialog(PaletteExtractDialog)
 
     def apply_color_effect(self, new_colors):
         # Effect is only applied if the user selects "Apply"
