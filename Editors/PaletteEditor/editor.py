@@ -46,11 +46,12 @@ class PaletteEditor(QtW.QWidget):
         self._unsaved_changes = False
         self._current_dropdown_index = -1
 
-        self.init_ui()
-
         # Advanced Editing window handler
         self.active_advanced_dialog = None
 
+        self.init_ui()
+
+    # To-do: Break this apart and consolidate some of the widget generation
     def init_ui(self):
         main_layout = QtW.QVBoxLayout(self)
 
@@ -106,8 +107,6 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # LEFT PANEL: Palette and Clipboard
         # -----------------------------
-        left_panel = QtW.QVBoxLayout()
-
         # Palette Grid
         color_box = QtW.QGroupBox("Palette")
         color_layout = QtW.QVBoxLayout(color_box)
@@ -231,9 +230,7 @@ class PaletteEditor(QtW.QWidget):
 
         self.clipboard_splitter_sizes = None
 
-        left_panel.addWidget(self.palette_splitter)
-
-        content_layout.addLayout(left_panel, stretch=2)
+        content_layout.addWidget(self.palette_splitter, stretch=2)
 
         # -----------------------------
         # RIGHT PANEL: Editing Controls
@@ -366,7 +363,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Clear all three channels within the chosen batch scope
         btn_clear_colors = QtW.QPushButton("Clear")
-        btn_clear_colors.setToolTip("Invert RGB channels for all chosen colors")
+        btn_clear_colors.setToolTip("Clear RGB channels to 0 for all chosen colors")
         btn_clear_colors.clicked.connect(lambda: self.batch_clear_color())
         batch_edit_layout.addWidget(btn_clear_colors, rows, 4)
         btn_clear_colors.setFixedSize(QSize(55, 25))
@@ -537,7 +534,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Load dialog for palette file
         file_path, _ = QtW.QFileDialog.getOpenFileName(
-            self, "Load Palette", start_dir, "Palette Files (*.bin *.pal *.json);;All Files (*)"
+            self, "Load Palette", start_dir, "Palette Files (*.bin *.pal);;All Files (*)"
         )
         if not file_path:
             return
@@ -742,7 +739,7 @@ class PaletteEditor(QtW.QWidget):
         # Extending palette size
         if new_size > current_size:
             # Append black colors
-            self.palette_colors.extend([QColor(0, 0, 0)] * (new_size - current_size))
+            self.palette_colors.extend(QColor(0, 0, 0) for _ in range(new_size - current_size))
 
             # Rebuild starting from the first newly added index
             self.rebuild_grid(current_size)
@@ -750,9 +747,8 @@ class PaletteEditor(QtW.QWidget):
         # Retracting palette size
         else:
             self.palette_colors = self.palette_colors[:new_size]
-            self.rebuild_grid(new_size)
-
             self.validate_selection()
+            self.rebuild_grid(new_size)
             self.refresh_selection_ui()
 
         self.unsaved_changes = True
@@ -1118,7 +1114,7 @@ class PaletteEditor(QtW.QWidget):
             self.set_palette_data(loaded_colors)
             self.unsaved_changes = False  # clear flag on load
 
-    def rebuild_grid(self, index = 0):
+    def rebuild_grid(self, index=0):
         # Use index to tell Triad how much to rebuild (avoid unnecessary work)
         index = max(0, min(index, len(self.boxes)))
 
@@ -1143,7 +1139,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_resize_timer.start(0)
         self.palette_changed.emit()
 
-    def set_palette_data(self, colors: list[QColor]):
+    def set_palette_data(self, colors):
         # Constrain to range [1, 256]; To-Do: Make the first line optional if palette_colors is already defined
         self.palette_colors = colors[:PALEDIT_MAXCOLORS] if colors else [QColor(0, 0, 0)]
         self.rebuild_grid()
@@ -1152,7 +1148,7 @@ class PaletteEditor(QtW.QWidget):
         self.refresh_selection_ui()
         self.clear_history()
 
-    def select_colors(self, index: int, modifiers):
+    def select_colors(self, index, modifiers):
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             # CTRL+CLICK: Toggle selection
             if index in self.selected_indices:
@@ -1453,7 +1449,7 @@ class PaletteEditor(QtW.QWidget):
 
         else:
             # Remember the user's divider position
-            self.clipboard_splitter_sizes = (self.palette_splitter.sizes())
+            self.clipboard_splitter_sizes = self.palette_splitter.sizes()
 
             self.clipboard_scroll.hide()
             self.btn_toggle_clipboard.setArrowType(Qt.ArrowType.RightArrow)
