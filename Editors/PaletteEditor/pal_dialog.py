@@ -432,8 +432,6 @@ class GreyscaleDialog(AdvancedEditDialog):
         # -----------------------------
         # LEFT PANEL MOD: Greyscale Options
         # -----------------------------
-        method_group = QtW.QGroupBox("Greyscale Method")
-        method_layout = QtW.QVBoxLayout(method_group)
         options_group = QtW.QGroupBox("Greyscale Options")
         options_layout = QtW.QVBoxLayout(options_group)
 
