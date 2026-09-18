@@ -190,9 +190,7 @@ class ColorLibraryDialog(QtW.QDialog):
         for channel, group in self.channel_groups.items():
             group.button(getattr(self, f"{channel}_step")).setChecked(True)
 
-        self.preview_box.setStyleSheet(
-            f"background-color: {self.selected_color.name()}; border: 1px solid #666;"
-        )
+        self.preview_box.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 1px solid #666;")
         # Same 0BGR packing used by the palette writer (three bits per channel).
         cram_word = (self.b_step << 9) | (self.g_step << 5) | (self.r_step << 1)
         self.cram_label.setText(f"${cram_word:04X}")
@@ -266,7 +264,7 @@ class AdvancedEditDialog(QtW.QDialog):
         # -----------------------------
         # RIGHT PANEL: Palette Preview
         # -----------------------------
-        preview_group = QtW.QGroupBox("Preview")
+        preview_group = QtW.QGroupBox("Preview (Updates as you make changes)")
         preview_group_layout = QtW.QVBoxLayout(preview_group)
 
         scroll_area = QtW.QScrollArea()
@@ -369,45 +367,153 @@ class ColorBlendDialog(AdvancedEditDialog):
         blend_group = QtW.QGroupBox("Blend Options")
         blend_layout = QtW.QVBoxLayout(blend_group)
 
+        self.chk_split_toning = QtW.QCheckBox("Split Toning")
+        self.chk_split_toning.setToolTip(
+            "Brightness below 128 uses Shadows; "
+            "128 and above uses Highlights."
+        )
+        blend_layout.addWidget(self.chk_split_toning)
+        self.chk_split_toning.toggled.connect(self.on_split_toning_toggled)
+
         # Color Picker
         color_layout = QtW.QHBoxLayout()
-        self.color_picker = QtW.QPushButton("Select Blend Color")
-        self.blend_color = QColor(0, 0, 0)
+        self.blend_label = QtW.QLabel("Blend Color:")
 
         self.color_preview = QtW.QFrame()
-        self.color_preview.setFixedSize(20, 20)
+        self.color_preview.setFixedSize(32, 24)
+
+        self.color_picker = QtW.QPushButton("Select Color")
+        self.blend_color = QColor(0, 0, 0)
+        self.color_picker.setAutoDefault(False)
         self.color_preview.setStyleSheet(f"background-color: {self.blend_color.name()}; border: 1px solid #444;")
+        self.color_picker.clicked.connect(lambda: self.choose_color(False))
 
-        self.color_picker.clicked.connect(self.choose_color)
-
-        color_layout.addWidget(self.color_picker)
+        color_layout.addWidget(self.blend_label)
         color_layout.addWidget(self.color_preview)
+        color_layout.addWidget(self.color_picker)
         blend_layout.addLayout(color_layout)
 
+        # Keep the second row visible while ordinary blending is selected
+        self.highlight_controls = QtW.QWidget()
+        highlight_layout = QtW.QHBoxLayout(self.highlight_controls)
+        highlight_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.highlight_preview = QtW.QFrame()
+        self.highlight_preview.setFixedSize(32, 24)
+
+        self.highlight_picker = QtW.QPushButton("Select Color")
+        self.highlight_color = QColor(255, 255, 255)
+        self.highlight_picker.setAutoDefault(False)
+        self.highlight_preview.setStyleSheet(f"background-color: {self.highlight_color.name()}; border: 1px solid #444;")
+        self.highlight_picker.clicked.connect(lambda: self.choose_color(True))
+
+        highlight_layout.addWidget(QtW.QLabel("Highlights:"))
+        highlight_layout.addWidget(self.highlight_preview)
+        highlight_layout.addWidget(self.highlight_picker)
+        self.highlight_controls.setEnabled(False)
+        blend_layout.addWidget(self.highlight_controls)
+
         # Percentage Selector
+        blend_layout.addWidget(QtW.QLabel("Blend Amount:"))
+
         pct_layout = QtW.QHBoxLayout()
-        pct_layout.addWidget(QtW.QLabel("Blend Amount:"))
 
-        self.combo_pct = QtW.QComboBox()
-        # 10% to 100% in increments of 10, Default: 50%
-        self.combo_pct.addItems([f"{i}%" for i in range(10, 101, 10)])
-        self.combo_pct.setCurrentText("50%")
-        self.combo_pct.currentIndexChanged.connect(self.update_preview)
+        self.blend_pct_slider = QtW.QSlider(Qt.Orientation.Horizontal)
+        self.blend_pct_slider.setRange(10, 100)
 
-        pct_layout.addWidget(self.combo_pct)
+        self.pct_tolerance = QtW.QSpinBox()
+        self.pct_tolerance.setRange(10, 100)
+        self.pct_tolerance.setSuffix("%")
+        self.pct_tolerance.setSingleStep(10)
+        self.pct_tolerance.setKeyboardTracking(False)
+
+        self.blend_pct_slider.valueChanged.connect(self.on_percentage_changed)
+        self.pct_tolerance.valueChanged.connect(self.on_percentage_changed)
+
+        pct_layout.addWidget(self.blend_pct_slider)
+        pct_layout.addWidget(self.pct_tolerance)
         blend_layout.addLayout(pct_layout)
 
         layout.addWidget(blend_group)
 
+        self.update_color_previews()
+
+    def on_percentage_changed(self, value):
+        # Snap to the nearest multiple of ten
+        snapped = ((value + 2) // 10) * 10
+
+        # Synchronize without triggering another valueChanged signal
+        self.blend_pct_slider.blockSignals(True)
+        self.pct_tolerance.blockSignals(True)
+
+        self.blend_pct_slider.setValue(snapped)
+        self.pct_tolerance.setValue(snapped)
+
+        self.blend_pct_slider.blockSignals(False)
+        self.pct_tolerance.blockSignals(False)
+
+        self.update_preview()
+
+    def on_split_toning_toggled(self, enabled):
+        self.blend_label.setText("Shadows:" if enabled else "Blend Color:")
+        self.highlight_controls.setEnabled(enabled)
+        self.update_preview()
+
+    def choose_color(self, highlights=False):
+        current_color = (self.highlight_color if highlights else self.blend_color)
+#        title = "Choose Highlight Color" if highlights else (
+#            "Choose Shadow Color"
+#            if self.chk_split_toning.isChecked()
+#            else "Choose Blend Color"
+#        )
+        dialog = ColorLibraryDialog(current_color, self)
+
+        if dialog.exec() == QtW.QDialog.DialogCode.Accepted:
+            if highlights:
+                self.highlight_color = dialog.get_color()
+            else:
+                self.blend_color = dialog.get_color()
+
+            self.update_color_previews()
+            self.update_preview()
+
+    def update_color_previews(self):
+        for preview, color in (
+            (self.color_preview, self.blend_color),
+            (self.highlight_preview, self.highlight_color),
+        ):
+            preview.setStyleSheet(
+                f"background-color: {color.name()}; "
+                "border: 1px solid #666;"
+            )
+            preview.setToolTip(color.name().upper())
+
     def transform_color(self, original_color):
-        pct_str = self.combo_pct.currentText().replace("%", "")
+        _r = original_color.red()
+        _g = original_color.green()
+        _b = original_color.blue()
+
+        # By default, use the shadow color (primary blend color)
+        target_color = self.blend_color
+
+        # Determine whether to use Shadow or Highlight blend color
+        # based on the brightness of the original color
+        if self.chk_split_toning.isChecked():
+            brightness = (299 * _r + 587 * _g + 114 * _b) / 1000.0
+
+            # If this is a brighter color, use the highlight color
+            if brightness >= 128:
+                target_color = self.highlight_color
+
+        # Get percentage as a decimal, and the inverse
+        pct_str = self.pct_tolerance.value()
         blend_factor = int(pct_str) / 100.0     # Get percentage as a decimal
         inverse_factor = 1.0 - blend_factor
 
         # Calculate blended RGB color
-        _r = int(original_color.red() * inverse_factor + self.blend_color.red() * blend_factor)
-        _g = int(original_color.green() * inverse_factor + self.blend_color.green() * blend_factor)
-        _b = int(original_color.blue() * inverse_factor + self.blend_color.blue() * blend_factor)
+        _r = int(_r * inverse_factor + target_color.red() * blend_factor)
+        _g = int(_g * inverse_factor + target_color.green() * blend_factor)
+        _b = int(_b * inverse_factor + target_color.blue() * blend_factor)
 
         # Convert to a compatible color
         step_r = snap_to_md_colors(_r)
@@ -415,13 +521,6 @@ class ColorBlendDialog(AdvancedEditDialog):
         step_b = snap_to_md_colors(_b)
 
         return QColor(MDCOLOR_VALUES[step_r], MDCOLOR_VALUES[step_g], MDCOLOR_VALUES[step_b])
-
-    def choose_color(self):
-        color = QtW.QColorDialog.getColor(self.blend_color, self, "Choose Blend Color")
-        if color.isValid():
-            self.blend_color = color
-            self.color_preview.setStyleSheet(f"background-color: {self.blend_color.name()}; border: 1px solid #444;")
-            self.update_preview()
 
 
 class GreyscaleDialog(AdvancedEditDialog):
@@ -438,11 +537,7 @@ class GreyscaleDialog(AdvancedEditDialog):
         # Greyscale Method
         options_layout.addWidget(QtW.QLabel("Method:"))
         self.combo_method = QtW.QComboBox()
-        self.combo_method.addItems([
-            "Luminosity",
-            "Lightness",
-            "Average",
-        ])
+        self.combo_method.addItems(["Luminosity", "Lightness", "Average"])
         options_layout.addWidget(self.combo_method)
         self.combo_method.currentIndexChanged.connect(self.update_preview)
 
@@ -590,6 +685,7 @@ class GreyscaleDialog(AdvancedEditDialog):
         md_grey = MDCOLOR_VALUES[step]
 
         return QColor(md_grey, md_grey, md_grey)
+
 
 class InvertColorsDialog(AdvancedEditDialog):
     # Signal to apply changes to the palette's colors
