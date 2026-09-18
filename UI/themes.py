@@ -10,9 +10,9 @@ THEMES = {
         "text_muted": "#B8C8D0",
         "border": "#484848",
         "box_selected": "#FFFFFF",
-        "fusion_window": QColor(30, 30, 30),
-        "fusion_base": QColor(18, 18, 18),
-        "fusion_button": QColor(48, 48, 48),
+        "fusion_window": "#1E1E1E",     # Window background
+        "fusion_base": "#181818",       # Inner (Textbox, Scrollbar
+        "fusion_button": "#343434",     # Tab
     },
     "light": {
         "primary": "#5058C8",
@@ -23,9 +23,9 @@ THEMES = {
         "text_muted": "#586068",
         "border": "#C8C8C8",
         "box_selected": "#5058C8",
-        "fusion_window": QColor(240, 240, 240),
-        "fusion_base": QColor(255, 255, 255),
-        "fusion_button": QColor(224, 224, 224),
+        "fusion_window": "#F0F0F0",
+        "fusion_base": "#FFFFFF",
+        "fusion_button": "#DCDCDC",
     }
 }
 
@@ -38,15 +38,16 @@ def apply_theme(app, theme_name="dark"):
     app.active_theme = t
 
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, t["fusion_window"])
+    palette.setColor(QPalette.ColorRole.Window, QColor(t["fusion_window"]))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(t["text_main"]))
-    palette.setColor(QPalette.ColorRole.Base, t["fusion_base"])
+    palette.setColor(QPalette.ColorRole.Base, QColor(t["fusion_base"]))
     palette.setColor(QPalette.ColorRole.Text, QColor(t["text_main"]))
-    palette.setColor(QPalette.ColorRole.Button, t["fusion_button"])
+    palette.setColor(QPalette.ColorRole.Button, QColor(t["fusion_button"]))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(t["text_main"]))
     palette.setColor(QPalette.ColorRole.Highlight, QColor(t["primary"]))
     app.setPalette(palette)
 
+    # The last item that uses bg_light should use a new intermediary color
     QSS = f"""
         QLabel#headerLabel {{
             color: {t["text_muted"]};
@@ -67,6 +68,10 @@ def apply_theme(app, theme_name="dark"):
             border: 2px dashed {t["primary"]};
             border-radius: 8px;
             background-color: {t["bg_medium"]};
+        }}
+        
+        QGroupBox#ControlsGroup {{
+            background-color: transparent;
         }}
     """
     app.setStyleSheet(QSS)

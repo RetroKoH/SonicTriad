@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PyQt6.QtWidgets import QSizePolicy
-from PyQt6.QtCore import QSize
+from PyQt6.QtCore import QSize, QEvent, QTimer
 
 from PaletteEditor.pal_dialog import *
 
@@ -149,24 +149,34 @@ class PaletteEditor(QtW.QWidget):
         instruction_label.setWordWrap(True)
 
         instruction_font = instruction_label.font()
-        instruction_font.setPointSizeF(
-            max(8.0, instruction_font.pointSizeF() - 1.0)
-        )
+        instruction_font.setPointSizeF(max(8.0, instruction_font.pointSizeF() - 1.0))
         instruction_label.setFont(instruction_font)
 
         color_layout.addWidget(instruction_label)
 
-        # Scroll area in case palette grid extends past the window border
-        scroll_area = QtW.QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        # Scrollable palette grid (w/ resizing ColorBox)
+        self.palette_scroll = QtW.QScrollArea()
+        self.palette_scroll.setWidgetResizable(True)
+
+        # Reserve scrollbar space so its appearance cannot change cell size
+        self.palette_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+
         scroll_content = QtW.QWidget()
 
+        # Palette grid aligns to the top-left corner
         self.grid_layout = QtW.QGridLayout(scroll_content)
         self.grid_layout.setSpacing(6)
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        scroll_area.setWidget(scroll_content)
-        color_layout.addWidget(scroll_area)
+        self.palette_scroll.setWidget(scroll_content)
+        color_layout.addWidget(self.palette_scroll)
+
+        # Defer resizing until Qt has updated the viewport geometry
+        self.palette_resize_timer = QTimer(self)
+        self.palette_resize_timer.setSingleShot(True)
+        self.palette_resize_timer.timeout.connect(self.resize_palette_boxes)
+
+        self.palette_scroll.viewport().installEventFilter(self)
 
         # Palette Clipboard
         self.clipboard_group = QtW.QGroupBox()
@@ -224,11 +234,12 @@ class PaletteEditor(QtW.QWidget):
         # -----------------------------
         # RIGHT PANEL: Editing Controls
         # -----------------------------
-        right_panel = QtW.QVBoxLayout()
-
         # Color Editing Tool
-        control_group = QtW.QGroupBox("Color Editing")
+        control_group = QtW.QGroupBox(" Color Editing")
+        control_group.setObjectName("ControlsGroup")
         control_layout = QtW.QVBoxLayout(control_group)
+        # Preserve the space required by the controls and their spacing
+        control_layout.setSizeConstraint(QtW.QLayout.SizeConstraint.SetMinimumSize)
 
         # Selected Index Label
         self.index_label = QtW.QLabel("Selected Color: #0")
@@ -357,7 +368,7 @@ class PaletteEditor(QtW.QWidget):
         btn_clear_colors.setFixedSize(QSize(55, 25))
 
         # Keep the controls together, with spare space on the right
-        batch_edit_layout.setColumnStretch(4, 1)
+        batch_edit_layout.setColumnStretch(5, 1)
 
         control_layout.addLayout(batch_edit_layout)
 
@@ -417,13 +428,36 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_adv.addWidget(btn_gradient, 1, 0, 1, 2)
         btn_grid_adv.addWidget(btn_extract, 2, 0, 1, 2)
 
+        # Match the minimum height of the batch buttons
+        for btn in (
+            self.btn_shift_L,
+            self.btn_shift_R,
+            btn_blend,
+            btn_grey,
+            btn_gradient,
+            btn_extract,
+        ):
+            btn.setMinimumHeight(25)
+
         control_layout.addLayout(btn_grid_adv)
 
         # Keep all editing sections together at the top
         control_layout.addStretch()
-        right_panel.addWidget(control_group, stretch=1)
 
-        content_layout.addLayout(right_panel, stretch=1)
+        # Scroll when the window cannot accommodate the full sidebar
+        self.controls_scroll = QtW.QScrollArea()
+
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setFrameShape(QtW.QFrame.Shape.NoFrame)
+        self.controls_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.controls_scroll.setWidget(control_group)
+
+        # Don't color this like a viewer window (Which would happen with scrolling windows.
+        self.controls_scroll.viewport().setAutoFillBackground(False)
+        control_group.setAutoFillBackground(False)
+
+        content_layout.addWidget(self.controls_scroll, stretch=1)
 
         # Build initial grid UI and set selection to color 0
         self.set_palette_data(self.palette_colors)
@@ -720,6 +754,39 @@ class PaletteEditor(QtW.QWidget):
 
         self.refresh_selection_ui()
         self.unsaved_changes = True
+
+    # Tied to ColorBox resizing
+    def eventFilter(self, a0, event):
+        if (
+            a0 is self.palette_scroll.viewport()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self.palette_resize_timer.start(0)
+
+        return super().eventFilter(a0, event)
+
+    def resize_palette_boxes(self):
+        if not self.boxes:
+            return
+
+        columns = PALLINE_COLORS
+        margins = self.grid_layout.contentsMargins()
+        spacing = self.grid_layout.horizontalSpacing()
+
+        # Subtract the grid margins and gaps between columns
+        available_width = (
+            self.palette_scroll.viewport().width()
+            - margins.left()
+            - margins.right()
+            - spacing * (columns - 1)
+        )
+
+        box_size = max(32, available_width // columns)
+        target_size = QSize(box_size, box_size)
+
+        for box in self.boxes:
+            if box.minimumSize() != target_size:
+                box.setFixedSize(target_size)
 
     def open_color_library(self):
         # Get active color from the main editor
@@ -1054,6 +1121,7 @@ class PaletteEditor(QtW.QWidget):
             self.boxes.append(box)
 
         # Emit signal so open dialogs know palette size changed
+        self.palette_resize_timer.start(0)
         self.palette_changed.emit()
 
     def set_palette_data(self, colors: list[QColor]):
