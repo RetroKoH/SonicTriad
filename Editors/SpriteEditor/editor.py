@@ -6,8 +6,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
 
 from Constants import *
-from Editors.palettes import snap_to_md_colors
-from PaletteEditor.colorbox import MiniColorBox
+from PaletteEditor.editor import snap_to_md_colors
+from PaletteEditor.color_box import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
 

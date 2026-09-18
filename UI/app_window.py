@@ -6,8 +6,8 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
 from UI.themes import apply_theme
-from Editors.palettes import PaletteEditor
-from Editors.sprites import SpriteEditor
+from PaletteEditor.editor import PaletteEditor
+from SpriteEditor.editor import SpriteEditor
 
 class TriadApp(QtW.QMainWindow):
     def __init__(self, instance):

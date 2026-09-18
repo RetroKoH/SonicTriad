@@ -1,17 +1,21 @@
+import json
 from pathlib import Path
 
-from PyQt6.QtWidgets import QSizePolicy
-from PyQt6.QtCore import QSize, QEvent, QTimer
+import PyQt6.QtWidgets as QtW
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QEvent, QTimer
+from PyQt6.QtGui import QColor
 
-from PaletteEditor.pal_dialog import *
+import PaletteEditor.color_box as cb
+from PaletteEditor.pal_dialog import (
+    ColorBlendDialog,
+    GreyscaleDialog,
+    GradientBuilderDialog,
+    PaletteExtractDialog
+)
 
-from Constants import *
+from UI.md_color import snap_to_md_colors, ColorLibraryDialog
 
-# Used across all editors for color handling
-def snap_to_md_colors(val):
-    # Snaps an RGB color value to its corresponding slider index (0-7)
-    val = min(MDCOLOR_VALUES, key=lambda x: abs(x - val))
-    return MDCOLOR_VALUES.index(val)
+from Constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS
 
 class PaletteEditor(QtW.QWidget):
     # Signals for advanced editing preview sync
@@ -61,7 +65,7 @@ class PaletteEditor(QtW.QWidget):
         self.pal_dropdown = QtW.QComboBox()
         self.pal_dropdown.setMaximumWidth(300)
         self.pal_dropdown.setFixedHeight(25)
-        self.pal_dropdown.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.pal_dropdown.setSizePolicy(QtW.QSizePolicy.Policy.Maximum, QtW.QSizePolicy.Policy.Maximum)
         self.pal_dropdown.setToolTip("Select a palette file from the active project")
         self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
         pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
@@ -248,7 +252,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Hex Preview & Large Color Box
         preview_layout = QtW.QHBoxLayout()
-        self.large_preview = PreviewColorBox()
+        self.large_preview = cb.PreviewColorBox()
         self.large_preview.clicked.connect(self.open_color_library)
 
         self.hex_input = QtW.QLineEdit("#000000")
@@ -465,6 +469,11 @@ class PaletteEditor(QtW.QWidget):
         self.btn_toggle_clipboard.setChecked(False)
 
     def file_palette_new(self):
+        # To-Do: Clean up this flow. It should work as follows:
+        # Prepare the new palette.
+        # Write it and check success (it currently does this last, though this can fail).
+        # Register it in the project only after success (Doing this before save can cause a bug).
+
         count, ok = QtW.QInputDialog.getInt(
             self, "New Palette", "Number of colors:", 16, 1, PALEDIT_MAXCOLORS, 1
         )
@@ -566,7 +575,7 @@ class PaletteEditor(QtW.QWidget):
         if self.active_palette_path and self.active_palette_path.parent.exists():
             self.write_palette_to_disk(self.active_palette_path)
         else:
-            self.file_palette_save_as()
+            return self.file_palette_save_as()
 
     def file_palette_save_as(self):
         # Get top-level window to access project file
@@ -577,8 +586,10 @@ class PaletteEditor(QtW.QWidget):
         file_path, _ = QtW.QFileDialog.getSaveFileName(
             self, "Save Palette As", start_dir, "Genesis Palette (*.bin *.pal);;All Files (*)"
         )
+
+        # Failed Save
         if not file_path:
-            return
+            return False
 
         path = Path(file_path)
 
@@ -604,10 +615,14 @@ class PaletteEditor(QtW.QWidget):
                     QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
 
         # Save new palette copy to disk
-        self.write_palette_to_disk(path)
+        if not self.write_palette_to_disk(path):
+            return False
 
         # Add path to the editor's list and select it for editing
         self.register_and_select_palette(path)
+
+        # Successful Save
+        return True
 
     def file_palette_remove(self):
         if not self.active_palette_path:
@@ -993,9 +1008,15 @@ class PaletteEditor(QtW.QWidget):
         try:
             with open(path, "wb") as f:
                 f.write(binary_data)
-            self.unsaved_changes = False    # clear flag on save
+
+            # Successful Save
+            self.unsaved_changes = False
+            return True
+
+        # Failed Save
         except Exception as e:
             QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
+            return False
 
     def register_and_select_palette(self, path: Path):
         # Update the current palette file reference
@@ -1115,7 +1136,7 @@ class PaletteEditor(QtW.QWidget):
             color = self.palette_colors[idx]
             row, col = idx // PALLINE_COLORS, idx % PALLINE_COLORS
 
-            box = ColorBox(idx, color)
+            box = cb.ColorBox(idx, color)
             box.editor = self
             self.grid_layout.addWidget(box, row, col)
             self.boxes.append(box)
@@ -1554,11 +1575,15 @@ class PaletteEditor(QtW.QWidget):
         user_choice = self.show_save_prompt_dialog()
 
         if user_choice == "Save":
-            self.file_palette_save()
-            pending_action_callback()
+            if self.file_palette_save():
+                pending_action_callback()
+            else:
+                cancel_callback()
         elif user_choice == "Save As":
-            self.file_palette_save_as()
-            pending_action_callback()
+            if self.file_palette_save_as():
+                pending_action_callback()
+            else:
+                cancel_callback()
         elif user_choice == "Don't Save":
             pending_action_callback()
         elif user_choice == "Cancel":
