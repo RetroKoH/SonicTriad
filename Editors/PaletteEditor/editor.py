@@ -133,8 +133,6 @@ class PaletteEditor(QtW.QWidget):
         create_pushbutton("Resize Palette", tooltip="Resize the palette",
             width=85, on_clicked=self.edit_palette_resize, layout=pal_edit_layout)
 
-        self.update_undo_redo()  # Disable Undo/Redo at the start
-
         pal_edit_layout.addStretch()
 
         palette_layout.addLayout(pal_edit_layout)
@@ -214,7 +212,7 @@ class PaletteEditor(QtW.QWidget):
         # Preserve the space required by the controls and their spacing
         control_layout.setSizeConstraint(QtW.QLayout.SizeConstraint.SetMinimumSize)
 
-        # Selected Index Label (To-Do: Make text an f-string
+        # Selected Index Label
         self.index_label = create_label("Selected Color: #0", object_name="infoLabel", layout=control_layout)
 
         # Hex Preview & Large Color Box
