@@ -1357,7 +1357,14 @@ class PaletteEditor(QtW.QWidget):
             self.clipboard_group.setFixedHeight(self.clipboard_group.sizeHint().height())
 
     def on_slider_changed(self):
-        # Undo/Redo NOT called here. It's called in create_step_slider() instead
+        # Keyboard, wheel, and groove-click changes have the undo snapshot here
+        dragging = any(
+            slider.isSliderDown()
+            for slider in (self.r_slider, self.g_slider, self.b_slider)
+        )
+
+        if not dragging:
+            self.push_undo_state()
 
         _r = MDCOLOR_VALUES[self.r_slider.value()]
         _g = MDCOLOR_VALUES[self.g_slider.value()]
