@@ -5,6 +5,19 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QEvent, QTimer
 from PyQt6.QtGui import QColor
 
+from UI.widgets import (
+    create_combobox,
+    create_label,
+    create_lineedit,
+    create_pushbutton,
+    create_radiobutton,
+    create_scrollarea,
+    create_separator,
+    create_slider,
+    create_splitter,
+    create_toolbutton
+)
+
 import PaletteEditor.color_box as cb
 from PaletteEditor.pal_dialog import (
     ColorBlendDialog,
@@ -44,141 +57,116 @@ class PaletteEditor(QtW.QWidget):
         self.project_palette_paths = []
 
         self._unsaved_changes = False
-        self._current_dropdown_index = -1
+        self.current_dropdown_index = -1
 
         # Advanced Editing window handler
         self.active_advanced_dialog = None
 
-        self.init_ui()
+        self.ui_init()
 
-    # To-do: Break this apart and consolidate some of the widget generation
-    def init_ui(self):
+    def ui_init(self):
         main_layout = QtW.QVBoxLayout(self)
 
-        # -----------------------------
         # TOP PANEL: File Functions and Palette Selection
-        # -----------------------------
-        pal_select_layout = QtW.QHBoxLayout()
-        pal_select_layout.setSpacing(4)
-        pal_select_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        main_layout.addLayout(self.ui_build_file_toolbar())
+
+        palette_panel = self.ui_build_palette_panel()   # LEFT PANEL: Palette and Clipboard
+        editing_panel = self.ui_build_editing_panel()   # RIGHT PANEL: Editing Controls
+
+        # Horizontal splitter between the palette and editing controls
+        self.content_splitter = create_splitter((palette_panel, editing_panel),
+            orientation=Qt.Orientation.Horizontal, stretch_factors=(1, 1), sizes=(664, 336))
+        main_layout.addWidget(self.content_splitter, stretch=1)
+
+        # Build initial grid UI and set selection to color 0
+        self.set_palette_data(self.palette_colors)
+        self.refresh_clipboard()
+        self.btn_toggle_clipboard.setChecked(False)
+
+    def ui_build_file_toolbar(self):
+        file_toolbar = QtW.QHBoxLayout()
+        file_toolbar.setSpacing(4)
+        file_toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Palette File Dropdown
-        self.pal_dropdown = QtW.QComboBox()
-        self.pal_dropdown.setMaximumWidth(300)
-        self.pal_dropdown.setFixedHeight(25)
-        self.pal_dropdown.setSizePolicy(QtW.QSizePolicy.Policy.Maximum, QtW.QSizePolicy.Policy.Maximum)
-        self.pal_dropdown.setToolTip("Select a palette file from the active project")
-        self.pal_dropdown.currentIndexChanged.connect(self.on_pal_dropdown_changed)
-        pal_select_layout.addWidget(self.pal_dropdown, stretch=1)
+        self.pal_dropdown = create_combobox(
+            tooltip="Select a palette file from the active project",
+            on_index_changed=self.on_pal_dropdown_changed, layout=file_toolbar)
 
         # File Buttons
-        btn_new = QtW.QPushButton("New")
-        btn_load = QtW.QPushButton("Load")
-        btn_save = QtW.QPushButton("Save")
-        btn_saveas = QtW.QPushButton("Save As...")
-        btn_remove = QtW.QPushButton("Remove")
-        for btn in (btn_new, btn_load, btn_save, btn_saveas, btn_remove):
-            btn.setFixedSize(QSize(65, 25))
+        create_pushbutton("New", tooltip="Create a new palette",
+            on_clicked=lambda: self.check_unsaved_changes(self.file_palette_new), layout=file_toolbar)
+        create_pushbutton("Load", tooltip="Load an existing palette",
+            on_clicked=lambda: self.check_unsaved_changes(self.file_palette_load), layout=file_toolbar)
+        create_pushbutton("Save", tooltip="Save the current palette",
+            on_clicked=self.file_palette_save, layout=file_toolbar)
+        create_pushbutton("Save As...", tooltip="Save the current palette under a new name",
+            on_clicked=self.file_palette_save_as, layout=file_toolbar)
+        create_pushbutton("Remove", tooltip="Remove the current palette from the project",
+            on_clicked=self.file_palette_remove, layout=file_toolbar)
 
-        btn_new.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_new))
-        btn_load.clicked.connect(lambda: self.check_unsaved_changes(self.file_palette_load))
-        btn_save.clicked.connect(self.file_palette_save)
-        btn_saveas.clicked.connect(self.file_palette_save_as)
-        btn_remove.clicked.connect(self.file_palette_remove)
-
-        pal_select_layout.addWidget(btn_new)
-        pal_select_layout.addWidget(btn_load)
-        pal_select_layout.addWidget(btn_save)
-        pal_select_layout.addWidget(btn_saveas)
-        pal_select_layout.addWidget(btn_remove)
-
-        self.unsaved_label = QtW.QLabel("Unsaved Changes")
+        self.unsaved_label = create_label("Unsaved Changes", layout=file_toolbar)
         self.unsaved_label.setVisible(self._unsaved_changes)
-        pal_select_layout.addWidget(self.unsaved_label)
 
-        pal_select_layout.addStretch()
+        file_toolbar.addStretch()
+        return file_toolbar
 
-        main_layout.addLayout(pal_select_layout)
-
-        # Content layout below the upper level
-        content_layout = QtW.QHBoxLayout()
-        main_layout.addLayout(content_layout, stretch=1)
-
-        # -----------------------------
-        # LEFT PANEL: Palette and Clipboard
-        # -----------------------------
+    def ui_build_palette_panel(self):
         # Palette Grid
-        color_box = QtW.QGroupBox("Palette")
-        color_layout = QtW.QVBoxLayout(color_box)
+        palette_group = QtW.QGroupBox("Palette")
+        palette_layout = QtW.QVBoxLayout(palette_group)
 
         # Palette Editing Toolbar
         pal_edit_layout = QtW.QHBoxLayout()
         pal_edit_layout.setSpacing(4)
 
-        self.btn_undo = QtW.QPushButton("Undo")
-        self.btn_redo = QtW.QPushButton("Redo")
-        self.btn_copy = QtW.QPushButton("Copy")
-        self.btn_cut = QtW.QPushButton("Cut")
-        self.btn_paste = QtW.QPushButton("Paste")
-        btn_resize = QtW.QPushButton("Resize Palette")
-        for btn in (self.btn_undo, self.btn_redo, self.btn_copy, self.btn_cut, self.btn_paste):
-            btn.setFixedSize(QSize(55, 25))
-        btn_resize.setFixedSize(QSize(85, 25))
-
-        self.btn_undo.clicked.connect(self.edit_palette_undo)
-        self.btn_redo.clicked.connect(self.edit_palette_redo)
-        self.btn_copy.clicked.connect(self.copy_colors)
-        self.btn_cut.clicked.connect(lambda: self.copy_colors(True))
-        self.btn_paste.clicked.connect(lambda: self.paste_colors("over", self.active_index))
-        btn_resize.clicked.connect(self.edit_palette_resize)
+        self.btn_undo = create_pushbutton("Undo", tooltip="Undo the last change made",
+            width=55, on_clicked=self.edit_palette_undo, layout=pal_edit_layout)
+        self.btn_redo = create_pushbutton("Redo", tooltip="Redo the last undone change",
+            width=55, on_clicked=self.edit_palette_redo, layout=pal_edit_layout)
+        self.btn_copy = create_pushbutton("Copy", tooltip="Copy selected colors to the clipboard",
+            width=55, on_clicked=self.copy_colors, layout=pal_edit_layout)
+        self.btn_cut = create_pushbutton("Cut", tooltip="Cut selected colors to the clipboard",
+            width=55, on_clicked=lambda: self.copy_colors(True), layout=pal_edit_layout)
+        self.btn_paste = create_pushbutton("Paste", tooltip="Paste clipboard colors over the selected color(s)",
+            width=55, on_clicked=lambda: self.paste_colors("over", self.active_index), layout=pal_edit_layout)
+        create_pushbutton("Resize Palette", tooltip="Resize the palette",
+            width=85, on_clicked=self.edit_palette_resize, layout=pal_edit_layout)
 
         self.update_undo_redo()  # Disable Undo/Redo at the start
 
-        pal_edit_layout.addWidget(self.btn_undo)
-        pal_edit_layout.addWidget(self.btn_redo)
-        pal_edit_layout.addWidget(self.btn_copy)
-        pal_edit_layout.addWidget(self.btn_cut)
-        pal_edit_layout.addWidget(self.btn_paste)
-        pal_edit_layout.addWidget(btn_resize)
         pal_edit_layout.addStretch()
 
-        color_layout.addLayout(pal_edit_layout)
+        palette_layout.addLayout(pal_edit_layout)
 
         # Palette Selection Instructions
-        instruction_label = QtW.QLabel(
+        instruction_label = create_label(
             "Click to select | Shift-click for range | "
-            "Ctrl-click to toggle | Right-click for options"
-        )
-        instruction_label.setWordWrap(True)
+            "Ctrl-click to toggle | Right-click for options",
+            layout=palette_layout)
 
+        # To-Do: add this to QSS
         instruction_font = instruction_label.font()
         instruction_font.setPointSizeF(max(8.0, instruction_font.pointSizeF() - 1.0))
         instruction_label.setFont(instruction_font)
 
-        color_layout.addWidget(instruction_label)
-
         # Scrollable palette grid (w/ resizing ColorBox)
-        self.palette_scroll = QtW.QScrollArea()
-        self.palette_scroll.setWidgetResizable(True)
-
-        # Reserve scrollbar space so its appearance cannot change cell size
-        self.palette_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-
         scroll_content = QtW.QWidget()
 
         # Palette grid aligns to the top-left corner
         self.grid_layout = QtW.QGridLayout(scroll_content)
-        self.grid_layout.setSpacing(6)
+        self.grid_layout.setSpacing(5)
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        self.palette_scroll.setWidget(scroll_content)
-        color_layout.addWidget(self.palette_scroll)
+        self.palette_scroll = create_scrollarea(scroll_content,
+            vertical_policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOn, layout=palette_layout)
 
         # Defer resizing until Qt has updated the viewport geometry
         self.palette_resize_timer = QTimer(self)
         self.palette_resize_timer.setSingleShot(True)
         self.palette_resize_timer.timeout.connect(self.resize_palette_boxes)
 
+        # This is for the resizing
         self.palette_scroll.viewport().installEventFilter(self)
 
         # Palette Clipboard
@@ -187,26 +175,19 @@ class PaletteEditor(QtW.QWidget):
 
         clip_header_layout = QtW.QHBoxLayout()
 
-        self.btn_toggle_clipboard = QtW.QToolButton()
-        self.btn_toggle_clipboard.setText("Clipboard")
-        self.btn_toggle_clipboard.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_toggle_clipboard.setArrowType(Qt.ArrowType.DownArrow)
-        self.btn_toggle_clipboard.setCheckable(True)
-        self.btn_toggle_clipboard.setChecked(True)
-        self.btn_toggle_clipboard.setAutoRaise(True)
-        self.btn_toggle_clipboard.toggled.connect(self.toggle_clipboard)
+        self.btn_toggle_clipboard = create_toolbutton("Clipboard",
+            arrow_type=Qt.ArrowType.DownArrow, tool_button_style=Qt.ToolButtonStyle.ToolButtonTextBesideIcon,
+            checkable=True, checked=True, tooltip="Expand or collapse the palette clipboard",
+            on_toggled=self.toggle_clipboard, layout=clip_header_layout)
 
-        self.btn_clear_clipboard = QtW.QPushButton("Clear")
-        self.btn_clear_clipboard.clicked.connect(self.clear_clipboard)
-
-        clip_header_layout.addWidget(self.btn_toggle_clipboard)
         clip_header_layout.addStretch()
-        clip_header_layout.addWidget(self.btn_clear_clipboard)
+
+        self.btn_clear_clipboard = create_pushbutton("Clear", tooltip="Clear out the clipboard",
+            on_clicked=self.clear_clipboard, layout=clip_header_layout)
 
         clipboard_layout.addLayout(clip_header_layout)
 
-        self.clipboard_scroll = QtW.QScrollArea()
-        self.clipboard_scroll.setWidgetResizable(True)
+        # Scrollable clipboard grid
         clipboard_content = QtW.QWidget()
 
         self.clipboard_empty_label = None
@@ -215,49 +196,37 @@ class PaletteEditor(QtW.QWidget):
         self.clipboard_grid_layout.setSpacing(6)
         self.clipboard_grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        self.clipboard_scroll.setWidget(clipboard_content)
-        clipboard_layout.addWidget(self.clipboard_scroll)
+        self.clipboard_scroll = create_scrollarea(clipboard_content, layout=clipboard_layout)
 
-        # Create a splitter between the palette and the clipboard
-        self.palette_splitter = QtW.QSplitter(Qt.Orientation.Vertical)
-        self.palette_splitter.addWidget(color_box)
-        self.palette_splitter.addWidget(self.clipboard_group)
-        self.palette_splitter.setChildrenCollapsible(False)
-        self.palette_splitter.setHandleWidth(8)
-        self.palette_splitter.setStretchFactor(0, 2)
-        self.palette_splitter.setStretchFactor(1, 1)
-        self.palette_splitter.setSizes([400, 200])
+        # Draggable divider between the palette and the clipboard
+        self.palette_splitter = create_splitter((palette_group, self.clipboard_group),
+            orientation=Qt.Orientation.Vertical, stretch_factors=(2, 1), sizes=(400, 200))
 
         self.clipboard_splitter_sizes = None
 
-        content_layout.addWidget(self.palette_splitter, stretch=2)
+        return self.palette_splitter
 
-        # -----------------------------
-        # RIGHT PANEL: Editing Controls
-        # -----------------------------
+    def ui_build_editing_panel(self):
         # Color Editing Tool
-        control_group = QtW.QGroupBox(" Color Editing")
+        control_group = QtW.QGroupBox("Color Editing")
         control_group.setObjectName("ControlsGroup")
         control_layout = QtW.QVBoxLayout(control_group)
         # Preserve the space required by the controls and their spacing
         control_layout.setSizeConstraint(QtW.QLayout.SizeConstraint.SetMinimumSize)
 
-        # Selected Index Label
-        self.index_label = QtW.QLabel("Selected Color: #0")
-        self.index_label.setObjectName("infoLabel")
-        control_layout.addWidget(self.index_label)
+        # Selected Index Label (To-Do: Make text an f-string
+        self.index_label = create_label("Selected Color: #0", object_name="infoLabel", layout=control_layout)
 
         # Hex Preview & Large Color Box
         preview_layout = QtW.QHBoxLayout()
         self.large_preview = cb.PreviewColorBox()
         self.large_preview.clicked.connect(self.open_color_library)
-
-        self.hex_input = QtW.QLineEdit("#000000")
-        self.hex_input.setMaxLength(7)
-        self.hex_input.editingFinished.connect(self.on_hex_edited)
-
         preview_layout.addWidget(self.large_preview)
+
+        self.hex_input = create_lineedit("#000000", max_length=7,
+            tooltip="Enter a color as #RRGGBB", on_editing_finished=self.on_hex_edited)
         preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
+
         control_layout.addLayout(preview_layout)
 
         control_layout.addSpacing(15)
@@ -266,107 +235,76 @@ class PaletteEditor(QtW.QWidget):
         self.g_slider = self.create_step_slider(self.on_slider_changed)
         self.b_slider = self.create_step_slider(self.on_slider_changed)
 
-        self.r_val_label = QtW.QLabel("0")
-        self.g_val_label = QtW.QLabel("0")
-        self.b_val_label = QtW.QLabel("0")
+        self.r_val_label = create_label("0")
+        self.g_val_label = create_label("0")
+        self.b_val_label = create_label("0")
 
         control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
         control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
         control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
 
         # Separate individual color controls from batch editing
-        batch_separator = QtW.QFrame()
-        batch_separator.setFrameShape(QtW.QFrame.Shape.HLine)
-        batch_separator.setFrameShadow(QtW.QFrame.Shadow.Sunken)
-
-        control_layout.addSpacing(8)
-        control_layout.addWidget(batch_separator)
-        control_layout.addSpacing(8)
+        create_separator(layout=control_layout)
 
         # Batch Editing
-        mass_edit_label = QtW.QLabel("Batch Editing")
-        mass_edit_label.setObjectName("infoLabel")
-        control_layout.addWidget(mass_edit_label)
+        create_label("Batch Editing", object_name="infoLabel", layout=control_layout)
 
-        mass_scope_layout = QtW.QHBoxLayout()
-        self.opt_mass_all = QtW.QRadioButton("Full Palette")
-        self.opt_mass_selected = QtW.QRadioButton("Selected Color(s)")
-        self.opt_mass_all.setChecked(True)
+        batch_scope_layout = QtW.QHBoxLayout()
+        self.batch_scope_group = QtW.QButtonGroup(self)
 
-        mass_scope_layout.addWidget(self.opt_mass_all)
-        mass_scope_layout.addWidget(self.opt_mass_selected)
-        control_layout.addLayout(mass_scope_layout)
+        self.opt_mass_all = create_radiobutton("Full Palette",
+            checked=True, group=self.batch_scope_group, button_id=0, layout=batch_scope_layout)
+        self.opt_mass_selected = create_radiobutton("Selected Color(s)",
+            group=self.batch_scope_group, button_id=1, layout=batch_scope_layout)
+
+        control_layout.addLayout(batch_scope_layout)
 
         # Batch Channel Editing
         batch_edit_layout = QtW.QGridLayout()
         batch_edit_layout.setHorizontalSpacing(6)
         batch_edit_layout.setVerticalSpacing(4)
 
-        channels = [
-            ("Red", 'r'),
-            ("Green", 'g'),
-            ("Blue", 'b'),
-        ]
-
+        channels = [("Red", 'r'), ("Green", 'g'), ("Blue", 'b')]
         for idx, (label_text, ch) in enumerate(channels):
-            lbl = QtW.QLabel(f"{label_text} Channel:")
+            label = create_label(f"{label_text} Channel:")
 
-            btn_minus = QtW.QPushButton("−")
-            btn_plus = QtW.QPushButton("+")
-            btn_invert = QtW.QPushButton("Invert")
-            btn_clear = QtW.QPushButton("Clear")
-            btn_minus.setFixedSize(QSize(40, 25))
-            btn_plus.setFixedSize(QSize(40, 25))
-            btn_invert.setFixedSize(QSize(60, 25))
-            btn_clear.setFixedSize(QSize(55, 25))
+            # lambdas have an unused parameter so channel doesn't get overwritten by button's 'checked' bool
+            btn_minus = create_pushbutton("-",
+                tooltip=f"Decrease {label_text.lower()} by one step for all chosen colors",
+                width=40, on_clicked=lambda _, channel=ch: self.batch_shift_color(-1, channel))
+            btn_plus = create_pushbutton("+",
+                tooltip=f"Increase {label_text.lower()} by one step for all chosen colors",
+                width=40, on_clicked=lambda _, channel=ch: self.batch_shift_color(1, channel))
+            btn_invert = create_pushbutton("Invert",
+                tooltip=f"Invert the {label_text.lower()} channel for all chosen colors",
+                width=60, on_clicked=lambda _, channel=ch: self.batch_invert_color(channel))
+            btn_clear = create_pushbutton("Clear",
+                tooltip=f"Clear the {label_text.lower()} channel to 0 for all chosen colors",
+                width=55, on_clicked=lambda _, channel=ch: self.batch_clear_color(channel))
 
-            btn_minus.setToolTip(f"Decrease {label_text.lower()} by one step for all chosen colors")
-            btn_plus.setToolTip(f"Increase {label_text.lower()} by one step for all chosen colors")
-            btn_invert.setToolTip(f"Invert the {label_text.lower()} channel for all chosen colors")
-            btn_clear.setToolTip(f"Clear the {label_text.lower()} channel to 0 for all chosen colors")
-
-            btn_minus.clicked.connect(lambda _, channel=ch: self.batch_shift_color(-1, channel))
-            btn_plus.clicked.connect(lambda _, channel=ch: self.batch_shift_color(1, channel))
-            btn_invert.clicked.connect(lambda _, channel=ch: self.batch_invert_color(channel))
-            btn_clear.clicked.connect(lambda _, channel=ch: self.batch_clear_color(channel))
-
-            batch_edit_layout.addWidget(lbl, idx, 0)
+            batch_edit_layout.addWidget(label, idx, 0)
             batch_edit_layout.addWidget(btn_minus, idx, 1)
             batch_edit_layout.addWidget(btn_plus, idx, 2)
             batch_edit_layout.addWidget(btn_invert, idx, 3)
             batch_edit_layout.addWidget(btn_clear, idx, 4)
 
         rows = len(channels)
-        lbl = QtW.QLabel("All Channels:")
-        batch_edit_layout.addWidget(lbl, rows, 0)
+        batch_edit_layout.addWidget(create_label("All Channels:"), rows, 0)
 
-        # Decrease all three channels within the chosen batch scope
-        btn_minus_colors = QtW.QPushButton("-")
-        btn_minus_colors.setToolTip("Decrease RGB channels for all chosen colors")
-        btn_minus_colors.clicked.connect(lambda: self.batch_shift_color(-1))
-        batch_edit_layout.addWidget(btn_minus_colors, rows, 1)
-        btn_minus_colors.setFixedSize(QSize(40, 25))
+        # These effect all three channels within the chosen batch scope
+        btn_minus_all = create_pushbutton("-", tooltip="Decrease RGB channels for all chosen colors",
+            width=40, on_clicked=lambda: self.batch_shift_color(-1))
+        btn_plus_all = create_pushbutton("+", tooltip="Increase RGB channels for all chosen colors",
+            width=40, on_clicked=lambda: self.batch_shift_color(1))
+        btn_invert_all = create_pushbutton("Invert", tooltip="Invert RGB channels for all chosen colors",
+            width=60, on_clicked=lambda: self.batch_invert_color())
+        btn_clear_all = create_pushbutton("Clear", tooltip="Clear RGB channels to 0 for all chosen colors",
+            width=55, on_clicked=lambda: self.batch_clear_color())
 
-        # Increase all three channels within the chosen batch scope
-        btn_plus_colors = QtW.QPushButton("+")
-        btn_plus_colors.setToolTip("Increase RGB channels for all chosen colors")
-        btn_plus_colors.clicked.connect(lambda: self.batch_shift_color(1))
-        batch_edit_layout.addWidget(btn_plus_colors, rows, 2)
-        btn_plus_colors.setFixedSize(QSize(40, 25))
-
-        # Invert all three channels within the chosen batch scope
-        btn_invert_colors = QtW.QPushButton("Invert")
-        btn_invert_colors.setToolTip("Invert RGB channels for all chosen colors")
-        btn_invert_colors.clicked.connect(lambda: self.batch_invert_color())
-        batch_edit_layout.addWidget(btn_invert_colors, rows, 3)
-        btn_invert_colors.setFixedSize(QSize(60, 25))
-
-        # Clear all three channels within the chosen batch scope
-        btn_clear_colors = QtW.QPushButton("Clear")
-        btn_clear_colors.setToolTip("Clear RGB channels to 0 for all chosen colors")
-        btn_clear_colors.clicked.connect(lambda: self.batch_clear_color())
-        batch_edit_layout.addWidget(btn_clear_colors, rows, 4)
-        btn_clear_colors.setFixedSize(QSize(55, 25))
+        batch_edit_layout.addWidget(btn_minus_all, rows, 1)
+        batch_edit_layout.addWidget(btn_plus_all, rows, 2)
+        batch_edit_layout.addWidget(btn_invert_all, rows, 3)
+        batch_edit_layout.addWidget(btn_clear_all, rows, 4)
 
         # Keep the controls together, with spare space on the right
         batch_edit_layout.setColumnStretch(5, 1)
@@ -377,35 +315,23 @@ class PaletteEditor(QtW.QWidget):
         shift_layout = QtW.QHBoxLayout()
         shift_layout.setSpacing(4)
 
-        shift_label = QtW.QLabel("Shift selected colors:")
-        self.btn_shift_L = QtW.QPushButton("<< Left")
-        self.btn_shift_R = QtW.QPushButton("Right >>")
+        create_label("Shift selected colors:", layout=shift_layout)
+        self.btn_shift_L = create_pushbutton("<< Left",
+            tooltip="Rotate selected colors left, wrapping the first to the end",
+            on_clicked=lambda: self.edit_palette_shift("left"), layout=shift_layout)
+        self.btn_shift_R = create_pushbutton(">> Right",
+            tooltip="Rotate selected colors right, wrapping the last to the start",
+            on_clicked=lambda: self.edit_palette_shift("right"), layout=shift_layout)
 
-        self.btn_shift_L.setToolTip("Rotate selected colors left, wrapping the first to the end")
-        self.btn_shift_R.setToolTip("Rotate selected colors right, wrapping the last to the start")
-
-        self.btn_shift_L.clicked.connect(lambda: self.edit_palette_shift("left"))
-        self.btn_shift_R.clicked.connect(lambda: self.edit_palette_shift("right"))
-
-        shift_layout.addWidget(shift_label)
-        shift_layout.addWidget(self.btn_shift_L)
-        shift_layout.addWidget(self.btn_shift_R)
         shift_layout.addStretch()
 
         control_layout.addLayout(shift_layout)
 
         # Advanced Color Editing
-        advanced_separator = QtW.QFrame()
-        advanced_separator.setFrameShape(QtW.QFrame.Shape.HLine)
-        advanced_separator.setFrameShadow(QtW.QFrame.Shadow.Sunken)
+        create_separator(layout=control_layout)
 
-        control_layout.addSpacing(8)
-        control_layout.addWidget(advanced_separator)
-        control_layout.addSpacing(8)
-
-        advanced_label = QtW.QLabel("Advanced Color Editing")
-        advanced_label.setObjectName("infoLabel")
-        control_layout.addWidget(advanced_label)
+        # Advanced Editing options
+        create_label("Advanced Color Editing", object_name="infoLabel", layout=control_layout)
 
         # Advanced Option Buttons
         btn_grid_adv = QtW.QGridLayout()
@@ -414,56 +340,30 @@ class PaletteEditor(QtW.QWidget):
         btn_grid_adv.setColumnStretch(0, 1)
         btn_grid_adv.setColumnStretch(1, 1)
 
-        btn_blend = QtW.QPushButton("Color Blending")
-        btn_grey = QtW.QPushButton("Greyscaling")
-        btn_gradient = QtW.QPushButton("Build Color Gradient")
-        btn_extract = QtW.QPushButton("Extract Palette from Image")
-
-        btn_blend.clicked.connect(self.adv_blend_colors)
-        btn_grey.clicked.connect(self.adv_greyscale_colors)
-        btn_gradient.clicked.connect(self.adv_build_gradient)
-        btn_extract.clicked.connect(self.adv_extract_palette)
+        btn_blend = create_pushbutton("Color Blending",
+            width=None, tooltip="Blend the palette with selected color(s)", on_clicked=self.adv_blend_colors)
+        btn_grey = create_pushbutton("Greyscaling",
+            width=None, tooltip="Apply greyscale effects to the palette", on_clicked=self.adv_greyscale_colors)
+        btn_gradient = create_pushbutton("Build Color Gradient",
+            width=None, tooltip="Build a color gradient within the palette", on_clicked=self.adv_build_gradient)
+        btn_extract = create_pushbutton("Extract Palette from Image",
+            width=None, tooltip="Extract palette colors from a loaded image", on_clicked=self.adv_extract_palette)
 
         btn_grid_adv.addWidget(btn_blend, 0, 0, 1, 1)
         btn_grid_adv.addWidget(btn_grey, 0, 1, 1, 1)
         btn_grid_adv.addWidget(btn_gradient, 1, 0, 1, 2)
         btn_grid_adv.addWidget(btn_extract, 2, 0, 1, 2)
 
-        # Match the minimum height of the batch buttons
-        for btn in (
-            self.btn_shift_L,
-            self.btn_shift_R,
-            btn_blend,
-            btn_grey,
-            btn_gradient,
-            btn_extract,
-        ):
-            btn.setMinimumHeight(25)
-
         control_layout.addLayout(btn_grid_adv)
 
         # Keep all editing sections together at the top
         control_layout.addStretch()
 
-        # Scroll when the window cannot accommodate the full sidebar
-        self.controls_scroll = QtW.QScrollArea()
+        # Enable scrolling for the sidebar, disable BG color, and return widget
+        self.controls_scroll = create_scrollarea(control_group,
+            frame_shape=QtW.QFrame.Shape.NoFrame, fill_background=False)
 
-        self.controls_scroll.setWidgetResizable(True)
-        self.controls_scroll.setFrameShape(QtW.QFrame.Shape.NoFrame)
-        self.controls_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.controls_scroll.setWidget(control_group)
-
-        # Don't color this like a viewer window (Which would happen with scrolling windows.
-        self.controls_scroll.viewport().setAutoFillBackground(False)
-        control_group.setAutoFillBackground(False)
-
-        content_layout.addWidget(self.controls_scroll, stretch=1)
-
-        # Build initial grid UI and set selection to color 0
-        self.set_palette_data(self.palette_colors)
-        self.refresh_clipboard()
-        self.btn_toggle_clipboard.setChecked(False)
+        return self.controls_scroll
 
     def file_palette_new(self):
         # To-Do: Clean up this flow. It should work as follows:
@@ -1062,12 +962,12 @@ class PaletteEditor(QtW.QWidget):
 
     def on_pal_dropdown_changed(self, index):
         # Ignore if only reverting/resetting UI
-        if index == self._current_dropdown_index or index == -1:
+        if index == self.current_dropdown_index or index == -1:
             return
 
         def load_new_selection():
             # Load selected palette
-            self._current_dropdown_index = index
+            self.current_dropdown_index = index
             path = self.pal_dropdown.itemData(index)
             if path and isinstance(path, Path):
                 self.load_palette_data(path)
@@ -1075,7 +975,7 @@ class PaletteEditor(QtW.QWidget):
         def revert_selection():
             # Silently revert dropdown, don't replace palette
             self.pal_dropdown.blockSignals(True)
-            self.pal_dropdown.setCurrentIndex(self._current_dropdown_index)
+            self.pal_dropdown.setCurrentIndex(self.current_dropdown_index)
             self.pal_dropdown.blockSignals(False)
 
         self.check_unsaved_changes(load_new_selection, revert_selection)
@@ -1408,9 +1308,9 @@ class PaletteEditor(QtW.QWidget):
             self.clipboard_empty_label.deleteLater()
             self.clipboard_empty_label = None
 
-        # Display placeholder text when empty
+        # Display placeholder text when empty (To-Do: Add style to QSS)
         if not self.clipboard_colors:
-            self.clipboard_empty_label = QtW.QLabel("Clipboard is empty (Right-click grid colors to Copy or Cut)")
+            self.clipboard_empty_label = create_label("Clipboard is empty (Right-click grid colors to Copy or Cut)")
             self.clipboard_empty_label.setStyleSheet("color: #777777; font-style: italic;")
             self.clipboard_grid_layout.addWidget(self.clipboard_empty_label, 0, 0)
             return
@@ -1591,31 +1491,27 @@ class PaletteEditor(QtW.QWidget):
             return
 
     def create_step_slider(self, callback):
-        slider = QtW.QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 7)
-        slider.setSingleStep(1)
-        slider.setPageStep(1)
-        slider.setTickPosition(QtW.QSlider.TickPosition.TicksBelow)
-        slider.setTickInterval(1)
-
-        # Occurs as soon as user begins dragging slider
-        slider.sliderPressed.connect(self.push_undo_state)  # Record state here
-        slider.valueChanged.connect(callback)               # Callback upon slider change
-        return slider
+        return create_slider(
+            minimum=0,
+            maximum=7,
+            single_step=1,
+            page_step=1,
+            tick_position=QtW.QSlider.TickPosition.TicksBelow,
+            tick_interval=1,
+            on_pressed=self.push_undo_state,
+            on_value_changed=callback,
+        )
 
     def create_slider_row(self, label_text, slider, val_label):
         layout = QtW.QHBoxLayout()
-        lbl = QtW.QLabel(label_text)
-        lbl.setFixedWidth(50)
-        val_label.setFixedWidth(30)
-        layout.addWidget(lbl)
+        create_label(label_text, width=50, layout=layout)
         layout.addWidget(slider)
+        val_label.setFixedWidth(30)
         layout.addWidget(val_label)
         return layout
 
     def create_form_row(self, label_text, widget):
         layout = QtW.QVBoxLayout()
-        lbl = QtW.QLabel(label_text)
-        layout.addWidget(lbl)
+        create_label(label_text, layout=layout)
         layout.addWidget(widget)
         return layout
