@@ -90,14 +90,14 @@ class ColorBox(QtW.QFrame):
                     self.pending_single_select = True
                 else:
                     self.pending_single_select = False
-                    self.editor.select_colors(self.index, modifiers)
+                    self.editor.palette_select_colors(self.index, modifiers)
 
     def mouseReleaseEvent(self, a0):
         # If clicked and released without dragging, apply single selection
         if a0.button() == Qt.MouseButton.LeftButton and self.pending_single_select:
             self.pending_single_select = False
             if self.editor:
-                self.editor.select_colors(self.index, a0.modifiers())
+                self.editor.palette_select_colors(self.index, a0.modifiers())
 
         super().mouseReleaseEvent(a0)
 
@@ -155,7 +155,7 @@ class ColorBox(QtW.QFrame):
 
         # Swap colors through the editor
         if self.editor:
-            self.editor.swap_colors(src_indices, target_start)
+            self.editor.edit_swap_colors(src_indices, target_start)
 
         a0.acceptProposedAction()
 
@@ -181,15 +181,15 @@ class ColorBox(QtW.QFrame):
         action = menu.exec(global_pos)
 
         if action == act_cut:
-            self.editor.copy_colors(True)
+            self.editor.clipboard_copy(True)
         elif action == act_copy:
-            self.editor.copy_colors()
+            self.editor.clipboard_copy()
         elif action == act_paste_before:
-            self.editor.paste_colors("before", self.index)
+            self.editor.clipboard_paste("before", self.index)
         elif action == act_paste_over:
-            self.editor.paste_colors("over", self.index)
+            self.editor.clipboard_paste("over", self.index)
         elif action == act_paste_after:
-            self.editor.paste_colors("after", self.index)
+            self.editor.clipboard_paste("after", self.index)
         elif action == act_insert_before:
             self.insert_color("before", self.index)
         elif action == act_insert_after:
@@ -206,14 +206,14 @@ class ColorBox(QtW.QFrame):
             )
             return
 
-        self.editor.push_undo_state()  # Record state before inserting colors
+        self.editor.history_push_state()  # Record state before inserting colors
 
         index = target_index if mode == "before" else target_index + 1
         self.editor.palette_colors.insert(index, QColor(0, 0, 0))
-        self.editor.rebuild_grid(index)
+        self.editor.palette_rebuild_grid(index)
         self.editor.selected_indices = [index]
         self.editor.active_index = index
-        self.editor.refresh_selection_ui()
+        self.editor.palette_refresh_highlighting()
 
         self.editor.unsaved_changes = True
 
@@ -221,15 +221,14 @@ class ColorBox(QtW.QFrame):
         if not self.editor.selected_indices:
             return
 
-        self.editor.push_undo_state()  # Record state before clearing colors
+        self.editor.history_push_state()  # Record state before clearing colors
 
         black = QColor(0, 0, 0)
         for idx in self.editor.selected_indices:
             self.editor.palette_colors[idx] = black
             self.editor.boxes[idx].set_color(black)
 
-        self.editor.update_preview_box(black)
-
+        self.editor.palette_update_preview(black)
         self.editor.unsaved_changes = True
 
     def delete_color(self, index):
@@ -239,7 +238,7 @@ class ColorBox(QtW.QFrame):
         # Delete in reverse order to avoid issues with index shifting
         sorted_indices = sorted(self.editor.selected_indices, reverse=True)
         # Unsaved flag and undo state recording handled here
-        self.editor.remove_colors(sorted_indices)
+        self.editor.edit_remove_colors(sorted_indices)
 
 
 """ Preview Color Box (PaletteEditor)

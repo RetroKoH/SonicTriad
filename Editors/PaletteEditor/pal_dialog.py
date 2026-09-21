@@ -728,14 +728,14 @@ class PaletteExtractDialog(QtW.QDialog):
         self.editor.push_undo_state()
 
         # Apply to current index in main editor
-        self.editor.apply_color_change(snapped_color)
+        self.editor.edit_set_active_color(snapped_color)
         self.editor.unsaved_changes = True
 
         # Advance selection sequentially, wrapping around if needed
         next_idx = (self.editor.active_index + 1) % len(self.editor.palette_colors)
         self.editor.active_index = next_idx
         self.editor.selected_indices = [next_idx]
-        self.editor.refresh_selection_ui()
+        self.editor.palette_refresh_highlighting()
 
 
 class ImagePickerView(QtW.QGraphicsView):

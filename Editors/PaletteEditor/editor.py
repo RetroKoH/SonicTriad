@@ -64,6 +64,10 @@ class PaletteEditor(QtW.QWidget):
 
         self.ui_init()
 
+
+    # --------------------------------------------------
+    # UI Setup
+    # --------------------------------------------------
     def ui_init(self):
         main_layout = QtW.QVBoxLayout(self)
 
@@ -79,8 +83,8 @@ class PaletteEditor(QtW.QWidget):
         main_layout.addWidget(self.content_splitter, stretch=1)
 
         # Build initial grid UI and set selection to color 0
-        self.set_palette_data(self.palette_colors)
-        self.refresh_clipboard()
+        self.palette_set_colors(self.palette_colors)
+        self.clipboard_refresh()
         self.btn_toggle_clipboard.setChecked(False)
 
     def ui_build_file_toolbar(self):
@@ -121,15 +125,15 @@ class PaletteEditor(QtW.QWidget):
         pal_edit_layout.setSpacing(4)
 
         self.btn_undo = create_pushbutton("Undo", tooltip="Undo the last change made",
-            width=55, on_clicked=self.edit_palette_undo, layout=pal_edit_layout)
+            width=55, on_clicked=self.history_undo, layout=pal_edit_layout)
         self.btn_redo = create_pushbutton("Redo", tooltip="Redo the last undone change",
-            width=55, on_clicked=self.edit_palette_redo, layout=pal_edit_layout)
+            width=55, on_clicked=self.history_redo, layout=pal_edit_layout)
         self.btn_copy = create_pushbutton("Copy", tooltip="Copy selected colors to the clipboard",
-            width=55, on_clicked=self.copy_colors, layout=pal_edit_layout)
+            width=55, on_clicked=self.clipboard_copy, layout=pal_edit_layout)
         self.btn_cut = create_pushbutton("Cut", tooltip="Cut selected colors to the clipboard",
-            width=55, on_clicked=lambda: self.copy_colors(True), layout=pal_edit_layout)
+            width=55, on_clicked=lambda: self.clipboard_copy(True), layout=pal_edit_layout)
         self.btn_paste = create_pushbutton("Paste", tooltip="Paste clipboard colors over the selected color(s)",
-            width=55, on_clicked=lambda: self.paste_colors("over", self.active_index), layout=pal_edit_layout)
+            width=55, on_clicked=lambda: self.clipboard_paste("over", self.active_index), layout=pal_edit_layout)
         create_pushbutton("Resize Palette", tooltip="Resize the palette",
             width=85, on_clicked=self.edit_palette_resize, layout=pal_edit_layout)
 
@@ -162,7 +166,7 @@ class PaletteEditor(QtW.QWidget):
         # Defer resizing until Qt has updated the viewport geometry
         self.palette_resize_timer = QTimer(self)
         self.palette_resize_timer.setSingleShot(True)
-        self.palette_resize_timer.timeout.connect(self.resize_palette_boxes)
+        self.palette_resize_timer.timeout.connect(self.palette_resize_boxes)
 
         # This is for the resizing
         self.palette_scroll.viewport().installEventFilter(self)
@@ -176,12 +180,12 @@ class PaletteEditor(QtW.QWidget):
         self.btn_toggle_clipboard = create_toolbutton("Clipboard",
             arrow_type=Qt.ArrowType.DownArrow, tool_button_style=Qt.ToolButtonStyle.ToolButtonTextBesideIcon,
             checkable=True, checked=True, tooltip="Expand or collapse the palette clipboard",
-            on_toggled=self.toggle_clipboard, layout=clip_header_layout)
+            on_toggled=self.clipboard_toggle, layout=clip_header_layout)
 
         clip_header_layout.addStretch()
 
         self.btn_clear_clipboard = create_pushbutton("Clear", tooltip="Clear out the clipboard",
-            on_clicked=self.clear_clipboard, layout=clip_header_layout)
+            on_clicked=self.clipboard_clear, layout=clip_header_layout)
 
         clipboard_layout.addLayout(clip_header_layout)
 
@@ -218,20 +222,20 @@ class PaletteEditor(QtW.QWidget):
         # Hex Preview & Large Color Box
         preview_layout = QtW.QHBoxLayout()
         self.large_preview = cb.PreviewColorBox()
-        self.large_preview.clicked.connect(self.open_color_library)
+        self.large_preview.clicked.connect(self.edit_open_color_library)
         preview_layout.addWidget(self.large_preview)
 
         self.hex_input = create_lineedit("#000000", max_length=7,
-            tooltip="Enter a color as #RRGGBB", on_editing_finished=self.on_hex_edited)
+            tooltip="Enter a color as #RRGGBB", on_editing_finished=self.on_hex_color_edited)
         preview_layout.addLayout(self.create_form_row("Hex Value:", self.hex_input))
 
         control_layout.addLayout(preview_layout)
 
         control_layout.addSpacing(15)
 
-        self.r_slider = self.create_step_slider(self.on_slider_changed)
-        self.g_slider = self.create_step_slider(self.on_slider_changed)
-        self.b_slider = self.create_step_slider(self.on_slider_changed)
+        self.r_slider = self.create_step_slider(self.on_rgb_sliders_changed)
+        self.g_slider = self.create_step_slider(self.on_rgb_sliders_changed)
+        self.b_slider = self.create_step_slider(self.on_rgb_sliders_changed)
 
         self.r_val_label = create_label("0")
         self.g_val_label = create_label("0")
@@ -363,6 +367,36 @@ class PaletteEditor(QtW.QWidget):
 
         return self.controls_scroll
 
+    def create_step_slider(self, callback):
+        return create_slider(
+            minimum=0,
+            maximum=7,
+            single_step=1,
+            page_step=1,
+            tick_position=QtW.QSlider.TickPosition.TicksBelow,
+            tick_interval=1,
+            on_pressed=self.history_push_state,
+            on_value_changed=callback,
+        )
+
+    def create_slider_row(self, label_text, slider, val_label):
+        layout = QtW.QHBoxLayout()
+        create_label(label_text, width=50, layout=layout)
+        layout.addWidget(slider)
+        val_label.setFixedWidth(30)
+        layout.addWidget(val_label)
+        return layout
+
+    def create_form_row(self, label_text, widget):
+        layout = QtW.QVBoxLayout()
+        create_label(label_text, layout=layout)
+        layout.addWidget(widget)
+        return layout
+
+
+    # --------------------------------------------------
+    # File Operations
+    # --------------------------------------------------
     def file_palette_new(self):
         # To-Do: Clean up this flow. It should work as follows:
         # Prepare the new palette.
@@ -418,11 +452,11 @@ class PaletteEditor(QtW.QWidget):
                     )
 
         # Add path to the editor's list and select it for editing
-        self.register_and_select_palette(path)
+        self.proj_register_palette(path)
 
         # Update palette grid and save the new file to disk
-        self.set_palette_data(new_pal)
-        self.write_palette_to_disk(path)
+        self.palette_set_colors(new_pal)
+        self.file_pal_data_write(path)
 
     def file_palette_load(self):
         # Get top-level window to access project file
@@ -461,14 +495,14 @@ class PaletteEditor(QtW.QWidget):
                     QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
 
         # Add path to the editor's list and select it for editing
-        self.register_and_select_palette(path)
+        self.proj_register_palette(path)
 
         # Update palette grid with loaded palette
-        self.load_palette_data(path)
+        self.file_pal_data_read(path)
 
     def file_palette_save(self):
         if self.active_palette_path and self.active_palette_path.parent.exists():
-            self.write_palette_to_disk(self.active_palette_path)
+            self.file_pal_data_write(self.active_palette_path)
         else:
             return self.file_palette_save_as()
 
@@ -510,11 +544,11 @@ class PaletteEditor(QtW.QWidget):
                     QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
 
         # Save new palette copy to disk
-        if not self.write_palette_to_disk(path):
+        if not self.file_pal_data_write(path):
             return False
 
         # Add path to the editor's list and select it for editing
-        self.register_and_select_palette(path)
+        self.proj_register_palette(path)
 
         # Successful Save
         return True
@@ -567,418 +601,9 @@ class PaletteEditor(QtW.QWidget):
             self.project_palette_paths.remove(self.active_palette_path)
 
         self.active_palette_path = None
-        self.populate_palette_list(self.project_palette_paths)
+        self.proj_populate_pal_list(self.project_palette_paths)
 
-    def validate_selection(self):
-        # Filter out-of-bounds selected indices
-        self.selected_indices = [
-            idx for idx in self.selected_indices
-            if 0 <= idx < len(self.palette_colors)
-        ]
-
-        # Adjust the active index if out-of-bounds
-        self.active_index = max(
-            0, min(self.active_index, len(self.palette_colors) - 1)
-        )
-
-        # Always retain at least one selected color
-        if not self.selected_indices:
-            self.selected_indices = [self.active_index]
-
-        # The active color should belong to the selection
-        elif self.active_index not in self.selected_indices:
-            self.active_index = self.selected_indices[-1]
-
-    def edit_palette_undo(self):
-        if not self.undo_stack:
-            return
-
-        # Push palette state to redo stack
-        self.redo_stack.append([QColor(c) for c in self.palette_colors])
-
-        # Restore previous state and validate selection
-        self.palette_colors = self.undo_stack.pop()
-        self.validate_selection()
-
-        # Refresh palette
-        self.rebuild_grid()
-        self.refresh_selection_ui()
-        self.update_undo_redo()
-        self.unsaved_changes = True
-
-    def edit_palette_redo(self):
-        if not self.redo_stack:
-            return
-
-        # Push palette state to undo stack
-        self.undo_stack.append([QColor(c) for c in self.palette_colors])
-
-        # Restore next state and validate selection
-        self.palette_colors = self.redo_stack.pop()
-        self.validate_selection()
-
-        self.rebuild_grid()
-        self.refresh_selection_ui()
-        self.update_undo_redo()
-        self.unsaved_changes = True
-
-    def edit_palette_resize(self):
-        current_size = len(self.palette_colors)
-        new_size, ok = QtW.QInputDialog.getInt(
-            self, "Resize Palette", "Number of colors:", current_size, 1, PALEDIT_MAXCOLORS, 1
-        )
-
-        # Exit if the user cancels or doesn't change the size
-        if not ok or new_size == current_size:
-            return
-
-        self.push_undo_state()  # Record state before resizing palette
-
-        # Extending palette size
-        if new_size > current_size:
-            # Append black colors
-            self.palette_colors.extend(QColor(0, 0, 0) for _ in range(new_size - current_size))
-
-            # Rebuild starting from the first newly added index
-            self.rebuild_grid(current_size)
-
-        # Retracting palette size
-        else:
-            self.palette_colors = self.palette_colors[:new_size]
-            self.validate_selection()
-            self.rebuild_grid(new_size)
-            self.refresh_selection_ui()
-
-        self.unsaved_changes = True
-
-    def edit_palette_shift(self, direction):
-        # Do nothing if multiple colors aren't selected
-        if len(self.selected_indices) <= 1:
-            return
-
-        self.push_undo_state()  # Record state before shifting palette
-
-        # Sort indices to maintain sequential order
-        sorted_indices = sorted(self.selected_indices)
-        colors = [self.palette_colors[i] for i in sorted_indices]
-
-        # Perform rotating shift
-        if direction == "left":
-            rotated = colors[1:] + colors[:1]
-        elif direction == "right":
-            rotated = colors[-1:] + colors[:-1]
-        else:
-            return
-
-        # Update palette array and visual box widgets
-        for idx, color in zip(sorted_indices, rotated):
-            self.palette_colors[idx] = color
-            self.boxes[idx].set_color(color)
-
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    # Tied to ColorBox resizing
-    def eventFilter(self, a0, event):
-        if (
-            a0 is self.palette_scroll.viewport()
-            and event.type() == QEvent.Type.Resize
-        ):
-            self.palette_resize_timer.start(0)
-
-        return super().eventFilter(a0, event)
-
-    def resize_palette_boxes(self):
-        if not self.boxes:
-            return
-
-        columns = PALLINE_COLORS
-        margins = self.grid_layout.contentsMargins()
-        spacing = self.grid_layout.horizontalSpacing()
-
-        # Subtract the grid margins and gaps between columns
-        available_width = (
-            self.palette_scroll.viewport().width()
-            - margins.left()
-            - margins.right()
-            - spacing * (columns - 1)
-        )
-
-        box_size = max(32, available_width // columns)
-        target_size = QSize(box_size, box_size)
-
-        for box in self.boxes:
-            if box.minimumSize() != target_size:
-                box.setFixedSize(target_size)
-
-    def open_color_library(self):
-        # Get active color from the main editor
-        active_color = self.palette_colors[self.active_index]
-
-        # Unlike the other mini-windows, this one runs modally
-        dialog = ColorLibraryDialog(active_color, self)
-        if dialog.exec():
-            self.push_undo_state()  # Record state before applying chosen color
-
-            # Apply picked color to active index
-            new_color = dialog.get_color()
-            self.apply_color_change(new_color)
-            self.refresh_selection_ui()
-            self.unsaved_changes = True
-
-    def batch_target_scope(self):
-        if self.opt_mass_all.isChecked():
-            return range(len(self.palette_colors))
-        return tuple(self.selected_indices)
-
-    def batch_apply_edit(self, edit_color):
-        target_indices = self.batch_target_scope()
-
-        if not target_indices:
-            return
-
-        changes = []    # Buffer palette
-
-        for _i in target_indices:
-            original_color = self.palette_colors[_i]
-            new_color = QColor(original_color)
-
-            # Call invert, clear, or +/- adjust here
-            edit_color(new_color)
-
-            if new_color != original_color:
-                changes.append((_i, new_color))
-
-        # Stop if nothing changed
-        if not changes:
-            return
-
-        self.push_undo_state()  # Record state before applying changes
-
-        # Modify only what's actually changed
-        for idx, new_color in changes:
-            self.palette_colors[idx] = new_color
-            self.boxes[idx].set_color(new_color)
-
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    def batch_invert_color(self, channel=None):
-        def invert_color(color):
-            # Reverse selected color channels (None = all)
-            if channel in (None, 'r'):
-                step = snap_to_md_colors(color.red())
-                color.setRed(MDCOLOR_VALUES[7 - step])
-
-            if channel in (None, 'g'):
-                step = snap_to_md_colors(color.green())
-                color.setGreen(MDCOLOR_VALUES[7 - step])
-
-            if channel in (None, 'b'):
-                step = snap_to_md_colors(color.blue())
-                color.setBlue(MDCOLOR_VALUES[7 - step])
-
-        # Run the above function for the whole batch (Remembering channel)
-        self.batch_apply_edit(invert_color)
-
-    def batch_clear_color(self, channel=None):
-        def clear_color(color):
-            # Clear selected color channels (None = all)
-            if channel in (None, 'r'):
-                color.setRed(0)
-
-            if channel in (None, 'g'):
-                color.setGreen(0)
-
-            if channel in (None, 'b'):
-                color.setBlue(0)
-
-        # Run the above function for the whole batch (Remembering channel)
-        self.batch_apply_edit(clear_color)
-
-    def batch_shift_color(self, direction, channel=None):
-        def shift_color(color):
-            if channel in (None, "r"):
-                _r = snap_to_md_colors(color.red())
-                _r = max(0, min(7, _r + direction))
-                color.setRed(MDCOLOR_VALUES[_r])
-
-            if channel in (None, "g"):
-                _g = snap_to_md_colors(color.green())
-                _g = max(0, min(7, _g + direction))
-                color.setGreen(MDCOLOR_VALUES[_g])
-
-            if channel in (None, "b"):
-                _b = snap_to_md_colors(color.blue())
-                _b = max(0, min(7, _b + direction))
-                color.setBlue(MDCOLOR_VALUES[_b])
-
-        # Run the above function for the whole batch (Remembering channel and direction)
-        self.batch_apply_edit(shift_color)
-
-    def check_active_dialog(self):
-        # If an advanced dialog is open, bring it to focus
-        if self.active_advanced_dialog is not None and self.active_advanced_dialog.isVisible():
-            self.active_advanced_dialog.raise_()
-            self.active_advanced_dialog.activateWindow()
-            return True
-        return False
-
-    def open_advanced_dialog(self, dialog_class, signal_name=None, callback=None):
-        # Focus the existing dialog instead of opening another (to prevent duplication)
-        if self.check_active_dialog():
-            return
-
-        # Opens new window
-        dialog = dialog_class(self)
-
-        # Set up callback command (Applies to all but adv_extract_palette)
-        if signal_name is not None:
-            getattr(dialog, signal_name).connect(callback)
-
-        # Keep a reference for the duplication check at the start
-        self.active_advanced_dialog = dialog
-        dialog.show()
-
-    def adv_blend_colors(self):
-        self.open_advanced_dialog(ColorBlendDialog,"colors_applied", self.apply_color_effect)
-
-    def adv_greyscale_colors(self):
-        self.open_advanced_dialog(GreyscaleDialog, "colors_applied", self.apply_color_effect)
-
-    def adv_build_gradient(self):
-        self.open_advanced_dialog(GradientBuilderDialog, "gradient_applied", self.apply_gradient)
-
-    def adv_extract_palette(self):
-        self.open_advanced_dialog(PaletteExtractDialog)
-
-    def apply_color_effect(self, new_colors):
-        # Effect is only applied if the user selects "Apply"
-        self.push_undo_state()  # Record state before applying chosen color
-        self.palette_colors = new_colors
-        self.rebuild_grid()
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    def apply_gradient(self, gradient_colors):
-        # Effect is only applied if the user selects "Apply"
-        self.push_undo_state()  # Record state before applying gradient
-        start = self.active_index
-
-        # Inject gradient colors, expanding palette up to the limit if necessary
-        for i, color in enumerate(gradient_colors):
-            idx = start + i
-            if idx < len(self.palette_colors):
-                self.palette_colors[idx] = color
-            elif idx < PALEDIT_MAXCOLORS:
-                self.palette_colors.append(color)
-            else:
-                break
-
-        self.rebuild_grid(start)
-
-        # Mass select the newly placed gradient colors to visually confirm placement
-        end = min(start + len(gradient_colors), len(self.palette_colors))
-        self.selected_indices = list(range(start, end))
-        self.active_index = start
-
-        self.refresh_selection_ui()
-        self.unsaved_changes = True
-
-    def write_palette_to_disk(self, path: Path):
-        binary_data = bytearray()
-        for color in self.palette_colors:
-            _r = snap_to_md_colors(color.red())
-            _g = snap_to_md_colors(color.green())
-            _b = snap_to_md_colors(color.blue())
-
-            # store in 0BGR format
-            binary_data.append((_b << 1) & 0xFF)
-            val = (_g << 5) | (_r << 1)
-            binary_data.append(val & 0xFF)
-
-        try:
-            with open(path, "wb") as f:
-                f.write(binary_data)
-
-            # Successful Save
-            self.unsaved_changes = False
-            return True
-
-        # Failed Save
-        except Exception as e:
-            QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
-            return False
-
-    def register_and_select_palette(self, path: Path):
-        # Update the current palette file reference
-        self.active_palette_path = path
-
-        # Add it to the project if needed
-        if path not in self.project_palette_paths:
-            self.project_palette_paths.append(path)
-
-        # Repopulate the dropdown list
-        self.populate_palette_list(self.project_palette_paths)
-
-        # Set dropdown selection to newly added palette
-        target_index = -1
-        for i in range(self.pal_dropdown.count()):
-            item_data = self.pal_dropdown.itemData(i)
-            if item_data and Path(item_data) == path:
-                target_index = i
-                break
-
-        # Set new current index, then unblock signals again
-        if target_index >= 0:
-            self.pal_dropdown.setCurrentIndex(target_index)
-
-    def populate_palette_list(self, palette_paths):
-        self.project_palette_paths = list(palette_paths)
-
-        self.pal_dropdown.blockSignals(True)
-        self.pal_dropdown.clear()
-
-        if not palette_paths:
-            self.pal_dropdown.addItem("No Palettes Found", userData=None)
-            self.pal_dropdown.setEnabled(False)
-            self.pal_dropdown.blockSignals(False)
-            return
-
-        self.pal_dropdown.setEnabled(True)
-        for path in self.project_palette_paths:
-            # Display relative filename to user, store full Path object in itemData
-            self.pal_dropdown.addItem(path.name, userData=path)
-
-        # Silently reset the selection
-        self.pal_dropdown.setCurrentIndex(-1)
-        self.pal_dropdown.blockSignals(False)
-
-        # Only auto-load index 0 if we aren't currently targeting a specific file
-        if not self.active_palette_path and self.pal_dropdown.count() > 0:
-            self.pal_dropdown.setCurrentIndex(0)
-
-    def on_pal_dropdown_changed(self, index):
-        # Ignore if only reverting/resetting UI
-        if index == self.current_dropdown_index or index == -1:
-            return
-
-        def load_new_selection():
-            # Load selected palette
-            self.current_dropdown_index = index
-            path = self.pal_dropdown.itemData(index)
-            if path and isinstance(path, Path):
-                self.load_palette_data(path)
-
-        def revert_selection():
-            # Silently revert dropdown, don't replace palette
-            self.pal_dropdown.blockSignals(True)
-            self.pal_dropdown.setCurrentIndex(self.current_dropdown_index)
-            self.pal_dropdown.blockSignals(False)
-
-        self.check_unsaved_changes(load_new_selection, revert_selection)
-
-    def load_palette_data(self, path):
+    def file_pal_data_read(self, path):
         self.active_palette_path = path
         if not path.exists():
             return
@@ -1009,10 +634,182 @@ class PaletteEditor(QtW.QWidget):
             print(f"Error loading palette {path.name}: {e}")
 
         if loaded_colors:
-            self.set_palette_data(loaded_colors)
+            self.palette_set_colors(loaded_colors)
             self.unsaved_changes = False  # clear flag on load
 
-    def rebuild_grid(self, index=0):
+    def file_pal_data_write(self, path):
+        binary_data = bytearray()
+        for color in self.palette_colors:
+            _r = snap_to_md_colors(color.red())
+            _g = snap_to_md_colors(color.green())
+            _b = snap_to_md_colors(color.blue())
+
+            # store in 0BGR format
+            binary_data.append((_b << 1) & 0xFF)
+            val = (_g << 5) | (_r << 1)
+            binary_data.append(val & 0xFF)
+
+        try:
+            with open(path, "wb") as f:
+                f.write(binary_data)
+
+            # Successful Save
+            self.unsaved_changes = False
+            return True
+
+        # Failed Save
+        except Exception as e:
+            QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
+            return False
+
+
+    # --------------------------------------------------
+    # Project File Selection
+    # --------------------------------------------------
+    def proj_register_palette(self, path):
+        """Register new palette to the project"""
+        # Update the current palette file reference
+        self.active_palette_path = path
+
+        # Add it to the project if needed
+        if path not in self.project_palette_paths:
+            self.project_palette_paths.append(path)
+
+        # Repopulate the dropdown list
+        self.proj_populate_pal_list(self.project_palette_paths)
+
+        # Set dropdown selection to newly added palette
+        target_index = -1
+        for i in range(self.pal_dropdown.count()):
+            item_data = self.pal_dropdown.itemData(i)
+            if item_data and Path(item_data) == path:
+                target_index = i
+                break
+
+        # Set selection to the new palette
+        if target_index >= 0:
+            self.pal_dropdown.setCurrentIndex(target_index)
+
+    def proj_populate_pal_list(self, palette_paths):
+        self.project_palette_paths = list(palette_paths)
+
+        self.pal_dropdown.blockSignals(True)
+        self.pal_dropdown.clear()
+
+        if not palette_paths:
+            self.pal_dropdown.addItem("No Palettes Found", userData=None)
+            self.pal_dropdown.setEnabled(False)
+            self.pal_dropdown.blockSignals(False)
+            return
+
+        self.pal_dropdown.setEnabled(True)
+        for path in self.project_palette_paths:
+            # Display relative filename to user, store full Path object in itemData
+            self.pal_dropdown.addItem(path.name, userData=path)
+
+        # Silently reset the selection
+        self.pal_dropdown.setCurrentIndex(-1)
+        self.pal_dropdown.blockSignals(False)
+
+        # Only auto-load index 0 if we aren't currently targeting a specific file
+        if not self.active_palette_path and self.pal_dropdown.count() > 0:
+            self.pal_dropdown.setCurrentIndex(0)
+
+    # File Toolbar Dropdown function
+    def on_pal_dropdown_changed(self, index):
+        # Ignore if only reverting/resetting UI
+        if index == self.current_dropdown_index or index == -1:
+            return
+
+        def load_new_selection():
+            # Load selected palette
+            self.current_dropdown_index = index
+            path = self.pal_dropdown.itemData(index)
+            if path and isinstance(path, Path):
+                self.file_pal_data_read(path)
+
+        def revert_selection():
+            # Silently revert dropdown, don't replace palette
+            self.pal_dropdown.blockSignals(True)
+            self.pal_dropdown.setCurrentIndex(self.current_dropdown_index)
+            self.pal_dropdown.blockSignals(False)
+
+        self.check_unsaved_changes(load_new_selection, revert_selection)
+
+
+    # --------------------------------------------------
+    # Unsaved Change Handling
+    # --------------------------------------------------
+    @property
+    def unsaved_changes(self):
+        return self._unsaved_changes
+
+    @unsaved_changes.setter
+    def unsaved_changes(self, value=True):
+        self._unsaved_changes = value
+        self.unsaved_label.setVisible(value)
+
+    def check_unsaved_changes(self, pending_action_callback, cancel_callback=None):
+        if not self.unsaved_changes:
+            pending_action_callback()
+            return
+
+        user_choice = self.show_save_prompt_dialog()
+
+        if user_choice == "Save":
+            if self.file_palette_save():
+                pending_action_callback()
+            else:
+                cancel_callback()
+        elif user_choice == "Save As":
+            if self.file_palette_save_as():
+                pending_action_callback()
+            else:
+                cancel_callback()
+        elif user_choice == "Don't Save":
+            pending_action_callback()
+        elif user_choice == "Cancel":
+            # Revert UI state if needed
+            if cancel_callback:
+                cancel_callback()
+            return
+
+    def show_save_prompt_dialog(self):
+        prompt = QtW.QMessageBox(self)
+        prompt.setWindowTitle("Unsaved Changes")
+        prompt.setText("You have unsaved changes in the current palette. What would you like to do?")
+
+        btn_save = prompt.addButton("Save", QtW.QMessageBox.ButtonRole.AcceptRole)
+        btn_save_as = prompt.addButton("Save As...", QtW.QMessageBox.ButtonRole.AcceptRole)
+        btn_dont_save = prompt.addButton("Don't Save", QtW.QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = prompt.addButton("Cancel", QtW.QMessageBox.ButtonRole.RejectRole)
+
+        prompt.exec()
+
+        clicked_btn = prompt.clickedButton()
+        if clicked_btn == btn_save:
+            return "Save"
+        elif clicked_btn == btn_save_as:
+            return "Save As"
+        elif clicked_btn == btn_dont_save:
+            return "Don't Save"
+        else:
+            return "Cancel"
+
+
+    # --------------------------------------------------
+    # Palette Data Grid
+    # --------------------------------------------------
+    def palette_set_colors(self, colors):
+        # Constrain to range [1, 256]; To-Do: Make the first line optional if palette_colors is already defined
+        self.palette_colors = colors[:PALEDIT_MAXCOLORS] if colors else [QColor(0, 0, 0)]
+        self.palette_rebuild_grid()
+        self.selected_indices = [0]
+        self.active_index = 0
+        self.palette_refresh_highlighting()
+        self.history_clear()
+
+    def palette_rebuild_grid(self, index=0):
         # Use index to tell Triad how much to rebuild (avoid unnecessary work)
         index = max(0, min(index, len(self.boxes)))
 
@@ -1037,16 +834,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_resize_timer.start(0)
         self.palette_changed.emit()
 
-    def set_palette_data(self, colors):
-        # Constrain to range [1, 256]; To-Do: Make the first line optional if palette_colors is already defined
-        self.palette_colors = colors[:PALEDIT_MAXCOLORS] if colors else [QColor(0, 0, 0)]
-        self.rebuild_grid()
-        self.selected_indices = [0]
-        self.active_index = 0
-        self.refresh_selection_ui()
-        self.clear_history()
-
-    def select_colors(self, index, modifiers):
+    def palette_select_colors(self, index, modifiers):
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             # CTRL+CLICK: Toggle selection
             if index in self.selected_indices:
@@ -1073,12 +861,260 @@ class PaletteEditor(QtW.QWidget):
             self.selected_indices = [index]
             self.active_index = index
 
-        self.refresh_selection_ui()
+        self.palette_refresh_highlighting()
 
-    def remove_colors(self, indices):
-        self.push_undo_state()  # Record state before removing color(s)
+    # Tied to ColorBox resizing
+    def eventFilter(self, a0, a1):
+        if (
+            a0 is self.palette_scroll.viewport()
+            and a1.type() == QEvent.Type.Resize
+        ):
+            self.palette_resize_timer.start(0)
 
-        lowest = indices[-1]     # for rebuild_grid
+        return super().eventFilter(a0, a1)
+
+    def palette_resize_boxes(self):
+        if not self.boxes:
+            return
+
+        columns = PALLINE_COLORS
+        margins = self.grid_layout.contentsMargins()
+        spacing = self.grid_layout.horizontalSpacing()
+
+        # Subtract the grid margins and gaps between columns
+        available_width = (
+            self.palette_scroll.viewport().width()
+            - margins.left()
+            - margins.right()
+            - spacing * (columns - 1)
+        )
+
+        box_size = max(32, available_width // columns)
+        target_size = QSize(box_size, box_size)
+
+        for box in self.boxes:
+            if box.minimumSize() != target_size:
+                box.setFixedSize(target_size)
+
+    def palette_check_selection(self):
+        # Filter out-of-bounds selected indices
+        self.selected_indices = [
+            idx for idx in self.selected_indices
+            if 0 <= idx < len(self.palette_colors)
+        ]
+
+        # Adjust the active index if out-of-bounds
+        self.active_index = max(
+            0, min(self.active_index, len(self.palette_colors) - 1)
+        )
+
+        # Always retain at least one selected color
+        if not self.selected_indices:
+            self.selected_indices = [self.active_index]
+
+        # The active color should belong to the selection
+        elif self.active_index not in self.selected_indices:
+            self.active_index = self.selected_indices[-1]
+
+    def palette_refresh_highlighting(self):
+        # Update active selection highlighting for all boxes
+        for idx, box in enumerate(self.boxes):
+            box.set_selected(idx in self.selected_indices)
+
+        # Dynamic elements based on color selection count
+        count = len(self.selected_indices)
+        # Shifting requires at least two selected colors
+        self.btn_shift_L.setEnabled(count > 1)
+        self.btn_shift_R.setEnabled(count > 1)
+        # Set selected color text
+        if count > 1:
+            self.index_label.setText(f"Selected: {count} Colors (Active: #{self.active_index})")
+        else:
+            self.index_label.setText(f"Selected Color: #{self.active_index}")
+
+        # Editing panel will still reflect the active index color
+        active_color = self.palette_colors[self.active_index]
+
+        # Block input signals
+        self.r_slider.blockSignals(True)
+        self.g_slider.blockSignals(True)
+        self.b_slider.blockSignals(True)
+        self.hex_input.blockSignals(True)
+
+        # Now, update sliders and preview safely
+        _r = snap_to_md_colors(active_color.red())
+        _g = snap_to_md_colors(active_color.green())
+        _b = snap_to_md_colors(active_color.blue())
+
+        self.r_slider.setValue(_r)
+        self.g_slider.setValue(_g)
+        self.b_slider.setValue(_b)
+
+        self.r_val_label.setText(f"0x{MDCOLOR_VALUES[_r]:02X}")
+        self.g_val_label.setText(f"0x{MDCOLOR_VALUES[_g]:02X}")
+        self.b_val_label.setText(f"0x{MDCOLOR_VALUES[_b]:02X}")
+
+        self.hex_input.setText(active_color.name().upper())
+        self.palette_update_preview(active_color)
+
+        # Unblock input signals
+        self.r_slider.blockSignals(False)
+        self.g_slider.blockSignals(False)
+        self.b_slider.blockSignals(False)
+        self.hex_input.blockSignals(False)
+
+        # Emit signal so open dialogs know selection or active colors changed
+        self.selection_changed.emit()
+
+    def palette_update_preview(self, color):
+        self.large_preview.setStyleSheet(f"""
+            QFrame {{
+                background-color: {color.name()};
+                border: 2px solid #555555;
+                border-radius: 6px;
+            }}
+        """)
+
+
+    # --------------------------------------------------
+    # Individual Color Editing Functions
+    # --------------------------------------------------
+    def edit_set_active_color(self, color):
+        """Updates the actively selected color"""
+        self.palette_colors[self.active_index] = color
+        self.boxes[self.active_index].set_color(color)
+        self.palette_update_preview(color)
+
+    def edit_open_color_library(self):
+        # Get active color from the main editor
+        active_color = self.palette_colors[self.active_index]
+
+        # Unlike the other mini-windows, this one runs modally
+        dialog = ColorLibraryDialog(active_color, self)
+        if dialog.exec():
+            self.history_push_state()  # Record state before applying chosen color
+
+            # Apply picked color to active index
+            new_color = dialog.get_color()
+            self.edit_set_active_color(new_color)
+            self.palette_refresh_highlighting()
+            self.unsaved_changes = True
+
+    # RGB Slider function
+    def on_rgb_sliders_changed(self):
+        # Keyboard, wheel, and groove-click changes have the undo snapshot here
+        dragging = any(
+            slider.isSliderDown()
+            for slider in (self.r_slider, self.g_slider, self.b_slider)
+        )
+
+        if not dragging:
+            self.history_push_state()
+
+        _r = MDCOLOR_VALUES[self.r_slider.value()]
+        _g = MDCOLOR_VALUES[self.g_slider.value()]
+        _b = MDCOLOR_VALUES[self.b_slider.value()]
+
+        self.r_val_label.setText(f"0x{_r:02X}")
+        self.g_val_label.setText(f"0x{_g:02X}")
+        self.b_val_label.setText(f"0x{_b:02X}")
+
+        new_color = QColor(_r, _g, _b)
+
+        self.hex_input.blockSignals(True)
+        self.hex_input.setText(new_color.name().upper())
+        self.hex_input.blockSignals(False)
+
+        self.edit_set_active_color(new_color)
+
+        self.unsaved_changes = True
+
+    # Color input edit function
+    def on_hex_color_edited(self):
+        hex_text = self.hex_input.text()
+        color = QColor(hex_text)
+        if color.isValid():
+            self.history_push_state()      # Record state before editing
+
+            _r = snap_to_md_colors(color.red())
+            _g = snap_to_md_colors(color.green())
+            _b = snap_to_md_colors(color.blue())
+
+            snapped_color = QColor(
+                MDCOLOR_VALUES[_r],
+                MDCOLOR_VALUES[_g],
+                MDCOLOR_VALUES[_b]
+            )
+
+            self.edit_set_active_color(snapped_color)
+            self.palette_refresh_highlighting()
+
+            self.unsaved_changes = True
+
+
+    # --------------------------------------------------
+    # Palette Structure Functions
+    # --------------------------------------------------
+    def edit_palette_resize(self):
+        current_size = len(self.palette_colors)
+        new_size, ok = QtW.QInputDialog.getInt(
+            self, "Resize Palette", "Number of colors:", current_size, 1, PALEDIT_MAXCOLORS, 1
+        )
+
+        # Exit if the user cancels or doesn't change the size
+        if not ok or new_size == current_size:
+            return
+
+        self.history_push_state()  # Record state before resizing palette
+
+        # Extending palette size
+        if new_size > current_size:
+            # Append black colors
+            self.palette_colors.extend(QColor(0, 0, 0) for _ in range(new_size - current_size))
+
+            # Rebuild starting from the first newly added index
+            self.palette_rebuild_grid(current_size)
+
+        # Retracting palette size
+        else:
+            self.palette_colors = self.palette_colors[:new_size]
+            self.palette_check_selection()
+            self.palette_rebuild_grid(new_size)
+            self.palette_refresh_highlighting()
+
+        self.unsaved_changes = True
+
+    def edit_palette_shift(self, direction):
+        # Do nothing if multiple colors aren't selected
+        if len(self.selected_indices) <= 1:
+            return
+
+        self.history_push_state()  # Record state before shifting palette
+
+        # Sort indices to maintain sequential order
+        sorted_indices = sorted(self.selected_indices)
+        colors = [self.palette_colors[i] for i in sorted_indices]
+
+        # Perform rotating shift
+        if direction == "left":
+            rotated = colors[1:] + colors[:1]
+        elif direction == "right":
+            rotated = colors[-1:] + colors[:-1]
+        else:
+            return
+
+        # Update palette array and visual box widgets
+        for idx, color in zip(sorted_indices, rotated):
+            self.palette_colors[idx] = color
+            self.boxes[idx].set_color(color)
+
+        self.palette_refresh_highlighting()
+        self.unsaved_changes = True
+
+    def edit_remove_colors(self, indices):
+        self.history_push_state()  # Record state before removing color(s)
+
+        lowest = indices[-1]     # for palette_rebuild_grid
         clear_last = False
 
         # Delete colors unless we are at the final color
@@ -1097,7 +1133,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Rebuild starting from the lowest (earliest) index
         rebuild_start = 0 if clear_last else lowest
-        self.rebuild_grid(rebuild_start)
+        self.palette_rebuild_grid(rebuild_start)
 
         # Prevent out-of-bounds crashes by clamping to the new palette length
         safe_index = min(rebuild_start, len(self.palette_colors) - 1)
@@ -1105,15 +1141,15 @@ class PaletteEditor(QtW.QWidget):
         # Adjust selection index
         self.selected_indices = [safe_index]
         self.active_index = safe_index
-        self.refresh_selection_ui()
+        self.palette_refresh_highlighting()
 
         self.unsaved_changes = True
 
-    def swap_colors(self, src_indices, target_start):
+    def edit_swap_colors(self, src_indices, target_start):
         if not src_indices:
             return
 
-        self.push_undo_state()  # Record state before swapping
+        self.history_push_state()  # Record state before swapping
 
         # Prevent swapping out of bounds
         count = len(src_indices)
@@ -1153,79 +1189,200 @@ class PaletteEditor(QtW.QWidget):
             self.active_index = target_start
             self.selected_indices = dst_indices
 
-        self.refresh_selection_ui()
+        self.palette_refresh_highlighting()
         self.unsaved_changes = True
 
         # Emit signal for open dialogs (Resizing shouldn't occur here though)
         self.palette_changed.emit()
 
-    def refresh_selection_ui(self):
-        # Update active selection highlighting for all boxes
-        for idx, box in enumerate(self.boxes):
-            box.set_selected(idx in self.selected_indices)
 
-        # Dynamic elements based on color selection count
-        count = len(self.selected_indices)
-        # Shifting requires at least two selected colors
-        self.btn_shift_L.setEnabled(count > 1)
-        self.btn_shift_R.setEnabled(count > 1)
-        # Set selected color text
-        if count > 1:
-            self.index_label.setText(f"Selected: {count} Colors (Active: #{self.active_index})")
-        else:
-            self.index_label.setText(f"Selected Color: #{self.active_index}")
+    # --------------------------------------------------
+    # Batch Color Editing Functions
+    # --------------------------------------------------
+    def batch_shift_color(self, direction, channel=None):
+        def shift_color(color):
+            if channel in (None, "r"):
+                _r = snap_to_md_colors(color.red())
+                _r = max(0, min(7, _r + direction))
+                color.setRed(MDCOLOR_VALUES[_r])
 
-        # Editing panel will still reflect the active index color
-        active_color = self.palette_colors[self.active_index]
+            if channel in (None, "g"):
+                _g = snap_to_md_colors(color.green())
+                _g = max(0, min(7, _g + direction))
+                color.setGreen(MDCOLOR_VALUES[_g])
 
-        # Block input signals
-        self.r_slider.blockSignals(True)
-        self.g_slider.blockSignals(True)
-        self.b_slider.blockSignals(True)
-        self.hex_input.blockSignals(True)
+            if channel in (None, "b"):
+                _b = snap_to_md_colors(color.blue())
+                _b = max(0, min(7, _b + direction))
+                color.setBlue(MDCOLOR_VALUES[_b])
 
-        # Now, update sliders and preview safely
-        _r = snap_to_md_colors(active_color.red())
-        _g = snap_to_md_colors(active_color.green())
-        _b = snap_to_md_colors(active_color.blue())
+        # Run the above function for the whole batch (Remembering channel and direction)
+        self.batch_apply_edit(shift_color)
 
-        self.r_slider.setValue(_r)
-        self.g_slider.setValue(_g)
-        self.b_slider.setValue(_b)
+    def batch_invert_color(self, channel=None):
+        def invert_color(color):
+            # Reverse selected color channels (None = all)
+            if channel in (None, 'r'):
+                step = snap_to_md_colors(color.red())
+                color.setRed(MDCOLOR_VALUES[7 - step])
 
-        self.r_val_label.setText(f"0x{MDCOLOR_VALUES[_r]:02X}")
-        self.g_val_label.setText(f"0x{MDCOLOR_VALUES[_g]:02X}")
-        self.b_val_label.setText(f"0x{MDCOLOR_VALUES[_b]:02X}")
+            if channel in (None, 'g'):
+                step = snap_to_md_colors(color.green())
+                color.setGreen(MDCOLOR_VALUES[7 - step])
 
-        self.hex_input.setText(active_color.name().upper())
-        self.update_preview_box(active_color)
+            if channel in (None, 'b'):
+                step = snap_to_md_colors(color.blue())
+                color.setBlue(MDCOLOR_VALUES[7 - step])
 
-        # Unblock input signals
-        self.r_slider.blockSignals(False)
-        self.g_slider.blockSignals(False)
-        self.b_slider.blockSignals(False)
-        self.hex_input.blockSignals(False)
+        # Run the above function for the whole batch (Remembering channel)
+        self.batch_apply_edit(invert_color)
 
-        # Emit signal so open dialogs know selection or active colors changed
-        self.selection_changed.emit()
+    def batch_clear_color(self, channel=None):
+        def clear_color(color):
+            # Clear selected color channels (None = all)
+            if channel in (None, 'r'):
+                color.setRed(0)
 
-    def copy_colors(self, cut=False):
+            if channel in (None, 'g'):
+                color.setGreen(0)
+
+            if channel in (None, 'b'):
+                color.setBlue(0)
+
+        # Run the above function for the whole batch (Remembering channel)
+        self.batch_apply_edit(clear_color)
+
+    def batch_target_scope(self):
+        if self.opt_mass_all.isChecked():
+            return range(len(self.palette_colors))
+        return tuple(self.selected_indices)
+
+    def batch_apply_edit(self, edit_color):
+        target_indices = self.batch_target_scope()
+
+        if not target_indices:
+            return
+
+        changes = []    # Buffer palette
+
+        for _i in target_indices:
+            original_color = self.palette_colors[_i]
+            new_color = QColor(original_color)
+
+            # Call invert, clear, or +/- adjust here
+            edit_color(new_color)
+
+            if new_color != original_color:
+                changes.append((_i, new_color))
+
+        # Stop if nothing changed
+        if not changes:
+            return
+
+        self.history_push_state()  # Record state before applying changes
+
+        # Modify only what's actually changed
+        for idx, new_color in changes:
+            self.palette_colors[idx] = new_color
+            self.boxes[idx].set_color(new_color)
+
+        self.palette_refresh_highlighting()
+        self.unsaved_changes = True
+
+
+    # --------------------------------------------------
+    # Advanced Color Editing Functions
+    # --------------------------------------------------
+    def adv_check_dialog(self):
+        # If an advanced dialog is open, bring it to focus
+        if self.active_advanced_dialog is not None and self.active_advanced_dialog.isVisible():
+            self.active_advanced_dialog.raise_()
+            self.active_advanced_dialog.activateWindow()
+            return True
+        return False
+
+    def adv_open_dialog(self, dialog_class, signal_name=None, callback=None):
+        # Focus the existing dialog instead of opening another (to prevent duplication)
+        if self.adv_check_dialog():
+            return
+
+        # Opens new window
+        dialog = dialog_class(self)
+
+        # Set up callback command (Applies to all but adv_extract_palette)
+        if signal_name is not None:
+            getattr(dialog, signal_name).connect(callback)
+
+        # Keep a reference for the duplication check at the start
+        self.active_advanced_dialog = dialog
+        dialog.show()
+
+    def adv_blend_colors(self):
+        self.adv_open_dialog(ColorBlendDialog,"colors_applied", self.adv_apply_effect)
+
+    def adv_greyscale_colors(self):
+        self.adv_open_dialog(GreyscaleDialog, "colors_applied", self.adv_apply_effect)
+
+    def adv_build_gradient(self):
+        self.adv_open_dialog(GradientBuilderDialog, "gradient_applied", self.adv_apply_gradient)
+
+    def adv_extract_palette(self):
+        self.adv_open_dialog(PaletteExtractDialog)
+
+    def adv_apply_effect(self, new_colors):
+        # Effect is only applied if the user selects "Apply"
+        self.history_push_state()  # Record state before applying chosen color
+        self.palette_colors = new_colors
+        self.palette_rebuild_grid()
+        self.palette_refresh_highlighting()
+        self.unsaved_changes = True
+
+    def adv_apply_gradient(self, gradient_colors):
+        # Effect is only applied if the user selects "Apply"
+        self.history_push_state()  # Record state before applying gradient
+        start = self.active_index
+
+        # Inject gradient colors, expanding palette up to the limit if necessary
+        for i, color in enumerate(gradient_colors):
+            idx = start + i
+            if idx < len(self.palette_colors):
+                self.palette_colors[idx] = color
+            elif idx < PALEDIT_MAXCOLORS:
+                self.palette_colors.append(color)
+            else:
+                break
+
+        self.palette_rebuild_grid(start)
+
+        # Mass select the newly placed gradient colors to visually confirm placement
+        end = min(start + len(gradient_colors), len(self.palette_colors))
+        self.selected_indices = list(range(start, end))
+        self.active_index = start
+
+        self.palette_refresh_highlighting()
+        self.unsaved_changes = True
+
+
+    # --------------------------------------------------
+    # Clipboard Functionality
+    # --------------------------------------------------
+    def clipboard_copy(self, cut=False):
         if not self.selected_indices:
             return
 
         # Sort colors to keep them in visual order when pasting
         sorted_indices = sorted(self.selected_indices)
         self.clipboard_colors = [QColor(self.palette_colors[idx]) for idx in sorted_indices]
-        self.refresh_clipboard()
+        self.clipboard_refresh()
 
         # If only Copying, stop here. Otherwise, remove copied colors
         if cut:
             # Delete in reverse order to avoid issues with index shifting
             sorted_indices.reverse()
             # Unsaved flag and undo state recording handled here
-            self.remove_colors(sorted_indices)
+            self.edit_remove_colors(sorted_indices)
 
-    def paste_colors(self, mode, target_index):
+    def clipboard_paste(self, mode, target_index):
         if not self.clipboard_colors:
             return
 
@@ -1255,7 +1412,7 @@ class PaletteEditor(QtW.QWidget):
                 "colors can be pasted without exceeding the color limit."
             )
 
-        self.push_undo_state()  # Record state before pasting colors
+        self.history_push_state()  # Record state before pasting colors
 
         # Isolate actual colors that will be pasted (if not all)
         colors_to_paste = self.clipboard_colors[:pasted_count]
@@ -1281,15 +1438,15 @@ class PaletteEditor(QtW.QWidget):
         self.selected_indices = list(range(start, end))
 
         # Refresh palette
-        self.rebuild_grid(start)
-        self.refresh_selection_ui()
+        self.palette_rebuild_grid(start)
+        self.palette_refresh_highlighting()
         self.unsaved_changes = True
 
-    def clear_clipboard(self):
+    def clipboard_clear(self):
         self.clipboard_colors.clear()
-        self.refresh_clipboard()
+        self.clipboard_refresh()
 
-    def refresh_clipboard(self):
+    def clipboard_refresh(self):
         # Update clipboard header
         count = len(self.clipboard_colors)
         color_text = "color" if count == 1 else "colors"
@@ -1330,7 +1487,7 @@ class PaletteEditor(QtW.QWidget):
             self.clipboard_grid_layout.addWidget(box, row, col)
             self.clipboard_boxes.append(box)
 
-    def toggle_clipboard(self, expanded):
+    def clipboard_toggle(self, expanded):
         # Collapse handler
         if expanded:
             # Allow the clipboard panel to grow again
@@ -1356,70 +1513,44 @@ class PaletteEditor(QtW.QWidget):
             self.clipboard_group.layout().activate()
             self.clipboard_group.setFixedHeight(self.clipboard_group.sizeHint().height())
 
-    def on_slider_changed(self):
-        # Keyboard, wheel, and groove-click changes have the undo snapshot here
-        dragging = any(
-            slider.isSliderDown()
-            for slider in (self.r_slider, self.g_slider, self.b_slider)
-        )
 
-        if not dragging:
-            self.push_undo_state()
+    # --------------------------------------------------
+    # Undo/Redo History
+    # --------------------------------------------------
+    def history_undo(self):
+        if not self.undo_stack:
+            return
 
-        _r = MDCOLOR_VALUES[self.r_slider.value()]
-        _g = MDCOLOR_VALUES[self.g_slider.value()]
-        _b = MDCOLOR_VALUES[self.b_slider.value()]
+        # Push palette state to redo stack
+        self.redo_stack.append([QColor(c) for c in self.palette_colors])
 
-        self.r_val_label.setText(f"0x{_r:02X}")
-        self.g_val_label.setText(f"0x{_g:02X}")
-        self.b_val_label.setText(f"0x{_b:02X}")
+        # Restore previous state and validate selection
+        self.palette_colors = self.undo_stack.pop()
+        self.palette_check_selection()
 
-        new_color = QColor(_r, _g, _b)
-
-        self.hex_input.blockSignals(True)
-        self.hex_input.setText(new_color.name().upper())
-        self.hex_input.blockSignals(False)
-
-        self.apply_color_change(new_color)
-
+        # Refresh palette
+        self.palette_rebuild_grid()
+        self.palette_refresh_highlighting()
+        self.history_update()
         self.unsaved_changes = True
 
-    def on_hex_edited(self):
-        hex_text = self.hex_input.text()
-        color = QColor(hex_text)
-        if color.isValid():
-            self.push_undo_state()      # Record state before editing
+    def history_redo(self):
+        if not self.redo_stack:
+            return
 
-            _r = snap_to_md_colors(color.red())
-            _g = snap_to_md_colors(color.green())
-            _b = snap_to_md_colors(color.blue())
+        # Push palette state to undo stack
+        self.undo_stack.append([QColor(c) for c in self.palette_colors])
 
-            snapped_color = QColor(
-                MDCOLOR_VALUES[_r],
-                MDCOLOR_VALUES[_g],
-                MDCOLOR_VALUES[_b]
-            )
+        # Restore next state and validate selection
+        self.palette_colors = self.redo_stack.pop()
+        self.palette_check_selection()
 
-            self.apply_color_change(snapped_color)
-            self.refresh_selection_ui()
+        self.palette_rebuild_grid()
+        self.palette_refresh_highlighting()
+        self.history_update()
+        self.unsaved_changes = True
 
-            self.unsaved_changes = True
-
-    def apply_color_change(self, color):
-        self.palette_colors[self.active_index] = color
-        self.boxes[self.active_index].set_color(color)
-        self.update_preview_box(color)
-
-    def update_preview_box(self, color):
-        self.large_preview.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color.name()};
-                border: 2px solid #555555;
-                border-radius: 6px;
-            }}
-        """)
-
-    def push_undo_state(self):
+    def history_push_state(self):
         # Snapshot current palette colors
         state = [QColor(c) for c in self.palette_colors]
         self.undo_stack.append(state)
@@ -1428,95 +1559,13 @@ class PaletteEditor(QtW.QWidget):
 
         # Clear redo stack when we have something new to undo
         self.redo_stack.clear()
-        self.update_undo_redo()
+        self.history_update()
 
-    def update_undo_redo(self):
+    def history_update(self):
         self.btn_undo.setEnabled(bool(self.undo_stack))
         self.btn_redo.setEnabled(bool(self.redo_stack))
 
-    def clear_history(self):
+    def history_clear(self):
         self.undo_stack.clear()
         self.redo_stack.clear()
-        self.update_undo_redo()
-
-    @property
-    def unsaved_changes(self):
-        return self._unsaved_changes
-
-    @unsaved_changes.setter
-    def unsaved_changes(self, value=True):
-        self._unsaved_changes = value
-        self.unsaved_label.setVisible(value)
-
-    def show_save_prompt_dialog(self):
-        prompt = QtW.QMessageBox(self)
-        prompt.setWindowTitle("Unsaved Changes")
-        prompt.setText("You have unsaved changes in the current palette. What would you like to do?")
-
-        btn_save = prompt.addButton("Save", QtW.QMessageBox.ButtonRole.AcceptRole)
-        btn_save_as = prompt.addButton("Save As...", QtW.QMessageBox.ButtonRole.AcceptRole)
-        btn_dont_save = prompt.addButton("Don't Save", QtW.QMessageBox.ButtonRole.DestructiveRole)
-        btn_cancel = prompt.addButton("Cancel", QtW.QMessageBox.ButtonRole.RejectRole)
-
-        prompt.exec()
-
-        clicked_btn = prompt.clickedButton()
-        if clicked_btn == btn_save:
-            return "Save"
-        elif clicked_btn == btn_save_as:
-            return "Save As"
-        elif clicked_btn == btn_dont_save:
-            return "Don't Save"
-        else:
-            return "Cancel"
-
-    def check_unsaved_changes(self, pending_action_callback, cancel_callback=None):
-        if not self.unsaved_changes:
-            pending_action_callback()
-            return
-
-        user_choice = self.show_save_prompt_dialog()
-
-        if user_choice == "Save":
-            if self.file_palette_save():
-                pending_action_callback()
-            else:
-                cancel_callback()
-        elif user_choice == "Save As":
-            if self.file_palette_save_as():
-                pending_action_callback()
-            else:
-                cancel_callback()
-        elif user_choice == "Don't Save":
-            pending_action_callback()
-        elif user_choice == "Cancel":
-            # Revert UI state if needed
-            if cancel_callback:
-                cancel_callback()
-            return
-
-    def create_step_slider(self, callback):
-        return create_slider(
-            minimum=0,
-            maximum=7,
-            single_step=1,
-            page_step=1,
-            tick_position=QtW.QSlider.TickPosition.TicksBelow,
-            tick_interval=1,
-            on_pressed=self.push_undo_state,
-            on_value_changed=callback,
-        )
-
-    def create_slider_row(self, label_text, slider, val_label):
-        layout = QtW.QHBoxLayout()
-        create_label(label_text, width=50, layout=layout)
-        layout.addWidget(slider)
-        val_label.setFixedWidth(30)
-        layout.addWidget(val_label)
-        return layout
-
-    def create_form_row(self, label_text, widget):
-        layout = QtW.QVBoxLayout()
-        create_label(label_text, layout=layout)
-        layout.addWidget(widget)
-        return layout
+        self.history_update()
