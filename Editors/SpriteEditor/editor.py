@@ -65,8 +65,9 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_zoom = 2
 
         # Piece selection and dragging
+        self.hovered_piece = None   # Hovered pieces will have transparency if not selected
         self.selected_pieces = set()
-        self.piece_drag = None     # Remember where the mouse and piece were when dragging began
+        self.piece_drag = None      # Remember where the mouse and piece were when dragging began
 
         self.ui_init()
 
@@ -162,7 +163,8 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_label.setFixedSize(
             self.sprite_canvas_width * self.sprite_zoom,
             self.sprite_canvas_height * self.sprite_zoom)
-        self.sprite_label.installEventFilter(self)
+        self.sprite_label.setMouseTracking(True)
+        self.sprite_label.installEventFilter(self)      # install for click and drag mechanics
 
         scroll_area = create_scrollarea(
             self.sprite_label, resizable=False, layout=sprite_viewer)
@@ -849,10 +851,30 @@ class SpriteEditor(QtW.QWidget):
     def sprite_clear_selection(self):
         self.selected_pieces.clear()
         self.piece_drag = None
+        self.hovered_piece = None
 
     def on_sprite_frame_changed(self):
         self.sprite_clear_selection()
         self.render_sprite_frame()
+
+    def sprite_update_hover(self, position=None, *, redraw=True):
+        piece_index = None
+
+        if position is not None:
+            inside_canvas = (
+                    0 <= position.x() < self.sprite_label.width()
+                    and 0 <= position.y() < self.sprite_label.height()
+            )
+
+            if inside_canvas:
+                x, y = self.sprite_mouse_to_mapping(position)
+                piece_index = self.sprite_piece_at(x, y)
+
+        if piece_index != self.hovered_piece:
+            self.hovered_piece = piece_index
+
+            if redraw:
+                self.render_sprite_frame()
 
     def sprite_begin_drag(self, position, modifiers):
         x, y = self.sprite_mouse_to_mapping(position)
@@ -956,29 +978,37 @@ class SpriteEditor(QtW.QWidget):
             event_type = a1.type()
 
             if event_type in (
-                    QEvent.Type.MouseButtonPress,
-                    QEvent.Type.MouseButtonDblClick,
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonDblClick
             ):
                 if a1.button() == Qt.MouseButton.LeftButton:
+                    # sprite_begin_drag redraws after changing selection.
+                    self.sprite_update_hover(a1.position(), redraw=False)
                     self.sprite_begin_drag(a1.position(), a1.modifiers())
                     return True
 
             elif event_type == QEvent.Type.MouseMove:
-                if self.piece_drag is not None:
-                    if a1.buttons() & Qt.MouseButton.LeftButton:
-                        self.sprite_drag_piece(a1.position())
-                    else:
-                        self.piece_drag = None
-                    return True
+                if self.piece_drag is not None and a1.buttons() & Qt.MouseButton.LeftButton:
+                    self.sprite_drag_piece(a1.position())
+                else:
+                    self.piece_drag = None
+                    self.sprite_update_hover(a1.position())
+
+                return True
 
             elif event_type == QEvent.Type.MouseButtonRelease:
                 if a1.button() == Qt.MouseButton.LeftButton:
-                    # Apply the final position before ending the drag.
+                    # Apply the final position before ending the drag
                     self.sprite_drag_piece(a1.position())
                     self.piece_drag = None
+                    self.sprite_update_hover(a1.position())
                     return True
 
+            elif event_type == QEvent.Type.Leave:
+                self.sprite_update_hover()
+
         return super().eventFilter(a0, a1)
+
 
     # --------------------------------------------------
     # Art File Entries
@@ -1777,7 +1807,7 @@ class SpriteEditor(QtW.QWidget):
         frame_data = self.map_frames[frame_idx]
 
         # Iterate over every piece in this frame
-        for piece in frame_data:
+        for piece_index, piece in enumerate(frame_data):
             start_tile = (tile_idx + piece['tile']) & 2047
             wid = piece['width']
             hgt = piece['height']
@@ -1786,6 +1816,15 @@ class SpriteEditor(QtW.QWidget):
             pal_line = (pal_idx + piece['palette']) & 3
             x_flip = piece['x_flip']
             y_flip = piece['y_flip']
+
+            # Selected pieces never receive the hover effect.
+            hovered = piece_index == self.hovered_piece and piece_index not in self.selected_pieces
+
+            if hovered:
+                target_image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
+                target_image.fill(Qt.GlobalColor.transparent)
+            else:
+                target_image = image
 
             # Process tiles Top-to-Bottom, then Left-to-Right
             for tx in range(wid):
@@ -1823,9 +1862,22 @@ class SpriteEditor(QtW.QWidget):
                             if 0 <= final_x < canvas_w and 0 <= final_y < canvas_h:
                                 color_idx = (pal_line * 16) + p_val
                                 if color_idx < len(self.palette_colors):
-                                    image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
+                                    target_image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
 
-        # Draw selection outlines after all sprite pieces.
+            # Composite this piece before rendering the next piece
+            if hovered:
+                painter = QPainter(image)
+
+                # Barely visible yellow background across the piece bounds
+                painter.fillRect(center_x + px_offset, center_y + py_offset,
+                    wid * 8, hgt * 8, QColor(255, 255, 0, 18))  # 18 = yellow BG alpha
+
+                # Render piece partially transparent
+                painter.setOpacity(0.45)    # overall piece transparency
+                painter.drawImage(0, 0, target_image)
+                painter.end()
+
+        # Draw selection outlines after all sprite pieces
         if self.selected_pieces:
             painter = QPainter(image)
             painter.setPen(QColor(255, 255, 0))
