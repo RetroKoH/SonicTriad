@@ -15,7 +15,7 @@ from UI.widgets import (
 )
 
 from Constants import *
-from PaletteEditor.editor import snap_to_md_colors
+from PaletteEditor.editor import snap_to_md_colors, ColorLibraryDialog
 from PaletteEditor.color_box import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
@@ -311,6 +311,7 @@ class SpriteEditor(QtW.QWidget):
             row = _i // 16
             col = _i % 16
             box = MiniColorBox(_i)
+            box.clicked.connect(lambda _idx = _i: self.palette_open_color_library(_idx))
             pal_grid_layout.addWidget(box, row, col)
             self.palette_boxes.append(box)
 
@@ -1719,6 +1720,24 @@ class SpriteEditor(QtW.QWidget):
 
             combo.setCurrentText(str(current_val))
             combo.blockSignals(False)
+
+    def palette_open_color_library(self, col_idx):
+        # Get active color from the clicked box
+        active_color = self.palette_colors[col_idx]
+
+        # Run color picker window
+        dialog = ColorLibraryDialog(active_color, self)
+        if dialog.exec():
+            # Apply picked color to active index
+            new_color = dialog.get_color()
+            self.palette_colors[col_idx] = new_color
+
+            # Update color box
+            self.palette_boxes[col_idx].set_color(new_color)
+            # Refresh VRAM after loading new palette
+            self.render_art_tiles()
+            # Refresh frame window
+            self.render_sprite_frame()
 
 
     # --------------------------------------------------

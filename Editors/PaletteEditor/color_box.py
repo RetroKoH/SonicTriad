@@ -262,14 +262,21 @@ class PreviewColorBox(QtW.QFrame):
 
 """ Mini Color Box (PaletteEditor)
     Used along with the sprite editor
-    Mini version of the standard box, with less functionality
+    Clicking one will allow you to change its color via the Color Picker
 """
 class MiniColorBox(QtW.QFrame):
+    clicked = pyqtSignal()
+
     def __init__(self, index, color=QColor(0, 0, 0), size=18):
         super().__init__()
         self.index = index
         self.color = color
         self.setFixedSize(size, size)
+
+        # if 0, this color will be assigned to the left button for drawing
+        # if 1, this color will be assigned to the right button for drawing
+        self.is_selected = -1
+
         self.update_style()
 
     def set_color(self, color: QColor):
@@ -283,3 +290,8 @@ class MiniColorBox(QtW.QFrame):
                 border: none;
             }}
         """)
+
+    def mousePressEvent(self, a0):
+        if a0.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(a0)
