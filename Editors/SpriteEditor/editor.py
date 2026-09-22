@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QImage, QPixmap
+from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter
 
 from UI.widgets import (
     create_combobox,
@@ -21,6 +21,7 @@ from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
 
 from Formats import compress, decompress
+
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self):
@@ -58,6 +59,15 @@ class SpriteEditor(QtW.QWidget):
 
         self._current_dropdown_index = -1
 
+        # Sprite canvas dimensions
+        self.sprite_canvas_width = 256
+        self.sprite_canvas_height = 256
+        self.sprite_zoom = 2
+
+        # Piece selection and dragging
+        self.selected_piece_index = None
+        self._piece_drag = None     # Remember where the mouse and piece were when dragging began
+
         self.ui_init()
 
 
@@ -76,6 +86,8 @@ class SpriteEditor(QtW.QWidget):
             orientation=Qt.Orientation.Horizontal,
             stretch_factors=(2, 1), sizes=(664, 336))
         main_layout.addWidget(self.content_splitter, stretch=1)
+
+        self.btn_toggle_filemanager.setChecked(False)
 
     def ui_build_file_toolbar(self):
         file_toolbar = QtW.QHBoxLayout()
@@ -137,17 +149,23 @@ class SpriteEditor(QtW.QWidget):
         # Frame Selector
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
-            on_value_changed=self.render_sprite_frame, layout=frame_controls)
+            on_value_changed=self.on_sprite_frame_changed, layout=frame_controls)
 
         frame_controls.addStretch()
         sprite_viewer.addLayout(frame_controls)
 
         # Scrollable Sprite Viewer
         self.sprite_label = QtW.QLabel()
-        self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.sprite_label.setMargin(0)
+        self.sprite_label.setFrameShape(QtW.QFrame.Shape.NoFrame)
+        self.sprite_label.setFixedSize(
+            self.sprite_canvas_width * self.sprite_zoom,
+            self.sprite_canvas_height * self.sprite_zoom)
+        self.sprite_label.installEventFilter(self)
 
         scroll_area = create_scrollarea(
-            self.sprite_label, layout=sprite_viewer)
+            self.sprite_label, resizable=False, layout=sprite_viewer)
         scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         return sprite_box
@@ -162,8 +180,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_toggle_filemanager = create_toolbutton("Sprite Data and Files",
             arrow_type=Qt.ArrowType.DownArrow,
             tool_button_style=Qt.ToolButtonStyle.ToolButtonTextBesideIcon,
-            checkable=True, checked=True,
-            tooltip="Expand or collapse the file manager",
+            checkable=True, checked=True, tooltip="Expand or collapse the file manager",
             on_toggled=self.filemanager_toggle, layout=file_header_layout)
 
         file_header_layout.addStretch()
@@ -772,6 +789,9 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     def sprite_clear_data(self):
         """Clear loaded assets and reset previews, keeping file-manager entries."""
+        # Clear sprite piece selection
+        self.sprite_clear_selection()
+
         # Clear palette to black
         black = QColor(0, 0, 0)
         self.palette_colors = [black for _i in range(64)]
@@ -795,6 +815,126 @@ class SpriteEditor(QtW.QWidget):
         self.render_art_tiles()
         self.render_sprite_frame()
 
+    def sprite_mouse_to_mapping(self, position):
+        x = int(position.x() // self.sprite_zoom)
+        x -= self.sprite_canvas_width // 2
+
+        y = int(position.y() // self.sprite_zoom)
+        y -= self.sprite_canvas_height // 2
+
+        return x, y
+
+    def sprite_piece_at(self, x, y):
+        frame_index = self.frame_spinbox.value()
+        if not 0 <= frame_index < len(self.map_frames):
+            return None
+
+        pieces = self.map_frames[frame_index]
+
+        # Renderer draws later pieces overtop earlier pieces
+        # Search backward to select the last-drawn matching piece
+        for index in range(len(pieces) - 1, -1, -1):
+            piece = pieces[index]
+
+            left = piece["x"]
+            top = piece["y"]
+            width = piece["width"] * 8
+            height = piece["height"] * 8
+
+            if left <= x < left + width and top <= y < top + height:
+                return index
+
+        return None
+
+    def sprite_clear_selection(self):
+        self.selected_piece_index = None
+        self._piece_drag = None
+
+    def on_sprite_frame_changed(self):
+        self.sprite_clear_selection()
+        self.render_sprite_frame()
+
+    def sprite_begin_drag(self, position):
+        x, y = self.sprite_mouse_to_mapping(position)
+        self.selected_piece_index = self.sprite_piece_at(x, y)
+        self._piece_drag = None
+
+        if self.selected_piece_index is not None:
+            frame_index = self.frame_spinbox.value()
+            piece = self.map_frames[frame_index][self.selected_piece_index]
+
+            self._piece_drag = (frame_index, self.selected_piece_index,
+                x, y, piece["x"], piece["y"])
+
+        self.render_sprite_frame()
+
+    def sprite_drag_piece(self, position):
+        if self._piece_drag is None:
+            return
+
+        frame_index, piece_index, mouse_x, mouse_y, start_x, start_y = self._piece_drag
+
+        # Cancel if the current frame or piece changed
+        if (
+            frame_index != self.frame_spinbox.value()
+            or not 0 <= frame_index < len(self.map_frames)
+            or not 0 <= piece_index < len(self.map_frames[frame_index])
+        ):
+            self.sprite_clear_selection()
+            return
+
+        x, y = self.sprite_mouse_to_mapping(position)
+        dx = x - mouse_x
+        dy = y - mouse_y
+
+        new_x = start_x + dx
+        new_y = start_y + dy
+
+        # Initial editing range for the current 256×256 canvas;
+        # Leave an existing out-of-range coordinate alone on that axis
+        # until the mouse actually moves along it
+        if dx:
+            new_x = max(-128, min(127, new_x))
+        if dy:
+            new_y = max(-128, min(127, new_y))
+
+        piece = self.map_frames[frame_index][piece_index]
+
+        if (piece["x"], piece["y"]) == (new_x, new_y):
+            return
+
+        piece["x"] = new_x
+        piece["y"] = new_y
+        self.render_sprite_frame()
+
+    def eventFilter(self, a0, a1):
+        if a0 is self.sprite_label:
+            event_type = a1.type()
+
+            if event_type in (
+                    QEvent.Type.MouseButtonPress,
+                    QEvent.Type.MouseButtonDblClick,
+            ):
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    self.sprite_begin_drag(a1.position())
+                    return True
+
+            elif event_type == QEvent.Type.MouseMove:
+                if self._piece_drag is not None:
+                    if a1.buttons() & Qt.MouseButton.LeftButton:
+                        self.sprite_drag_piece(a1.position())
+                    else:
+                        self._piece_drag = None
+                    return True
+
+            elif event_type == QEvent.Type.MouseButtonRelease:
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    # Apply the final position before ending the drag.
+                    self.sprite_drag_piece(a1.position())
+                    self._piece_drag = None
+                    return True
+
+        return super().eventFilter(a0, a1)
 
     # --------------------------------------------------
     # Art File Entries
@@ -1100,7 +1240,8 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
             return
 
-        # Flush out mapping frame data
+        # Clear selection and flush out frame data
+        self.sprite_clear_selection()
         self.map_frames.clear()
 
         try:
@@ -1558,10 +1699,9 @@ class SpriteEditor(QtW.QWidget):
 
         self.vram_label.setPixmap(scaled_pixmap)
 
-    # Incomplete
     def render_sprite_frame(self):
         # 256x256 canvas with the center representing the sprite's X/Y origin pivot
-        canvas_w, canvas_h = 256, 256
+        canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
         center_x, center_y = canvas_w // 2, canvas_h // 2
 
         image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
@@ -1573,8 +1713,9 @@ class SpriteEditor(QtW.QWidget):
         for _y in range(canvas_h): image.setPixelColor(center_x, _y, crosshair_color)
 
         if not self.map_frames:
-            self.sprite_label.setPixmap(QPixmap.fromImage(image))
+            self.sprite_clear_selection()
             self.frame_spinbox.setRange(0, 0)
+            self.render_sprite_image(image)
             return
 
         # Cap the spinbox to the number of loaded frames
@@ -1640,13 +1781,30 @@ class SpriteEditor(QtW.QWidget):
                                 if color_idx < len(self.palette_colors):
                                     image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
 
-        # Scale up 2x for visibility (using FastTransformation to keep hard pixel edges)
+        # Draw the selection outline after all sprite pieces.
+        index = self.selected_piece_index
+        if index is not None and 0 <= index < len(frame_data):
+            piece = frame_data[index]
+
+            painter = QPainter(image)
+            painter.setPen(QColor(255, 255, 0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(
+                center_x + piece["x"],
+                center_y + piece["y"],
+                piece["width"] * 8 - 1,
+                piece["height"] * 8 - 1,
+            )
+            painter.end()
+
+        self.render_sprite_image(image)
+
+    def render_sprite_image(self, image):
         pixmap = QPixmap.fromImage(image)
         scaled_pixmap = pixmap.scaled(
-            canvas_w * 2,
-            canvas_h * 2,
+            image.width() * self.sprite_zoom,
+            image.height() * self.sprite_zoom,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation
+            Qt.TransformationMode.FastTransformation,
         )
-
         self.sprite_label.setPixmap(scaled_pixmap)

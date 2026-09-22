@@ -30,6 +30,7 @@ from UI.md_color import snap_to_md_colors, ColorLibraryDialog
 
 from Constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS
 
+
 class PaletteEditor(QtW.QWidget):
     # Signals for advanced editing preview sync
     selection_changed = pyqtSignal()
