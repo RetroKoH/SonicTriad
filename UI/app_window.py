@@ -158,7 +158,7 @@ class TriadApp(QtW.QMainWindow):
 
             # Populate Palettes Tab dropdown with project files
             self.palette_editor.proj_populate_pal_list(resolved_palettes)
-            self.sprite_editor.populate_sprite_list(resolved_sprites)
+            self.sprite_editor.proj_populate_sprite_list(resolved_sprites)
 
         except Exception as e:
             self.info_label.setText(f"Error loading project:\n{str(e)}")

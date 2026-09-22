@@ -85,7 +85,7 @@ class SpriteEditor(QtW.QWidget):
         # Sprite Build Dropdown
         self.spr_dropdown = create_combobox(
             tooltip="Select a sprite build from the active project",
-            on_index_changed=self.on_sprite_build_changed, layout=file_toolbar)
+            on_index_changed=self.on_sprite_dropdown_changed, layout=file_toolbar)
 
         # File Buttons
         create_pushbutton("New", tooltip="Create a new sprite build",
@@ -179,11 +179,11 @@ class SpriteEditor(QtW.QWidget):
         art_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
-            width=60, on_clicked=self.file_art_new, layout=art_btn_layout)
+            width=60, on_clicked=self.art_entry_new, layout=art_btn_layout)
         self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
-            width=60, on_clicked=self.file_art_load, enabled=False, layout=art_btn_layout)
+            width=60, on_clicked=self.art_entry_load, enabled=False, layout=art_btn_layout)
         self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
-            width=60, on_clicked=self.file_art_save, enabled=False, layout=art_btn_layout)
+            width=60, on_clicked=self.art_entry_save, enabled=False, layout=art_btn_layout)
 
         # Load/Save are disabled by default until palettes are added
         self.btn_art_load.setEnabled(False)
@@ -211,11 +211,11 @@ class SpriteEditor(QtW.QWidget):
         map_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
-            width=60, on_clicked=self.file_mapping_new, layout=map_btn_layout)
+            width=60, on_clicked=self.mapping_entry_new, layout=map_btn_layout)
         self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
-            width=60, on_clicked=self.file_mapping_load, enabled=False, layout=map_btn_layout)
+            width=60, on_clicked=self.mapping_entry_load, enabled=False, layout=map_btn_layout)
         self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
-            width=60, on_clicked=self.file_mapping_save, enabled=False, layout=map_btn_layout)
+            width=60, on_clicked=self.mapping_entry_save, enabled=False, layout=map_btn_layout)
 
         mappings_layout.addLayout(map_btn_layout)
 
@@ -241,11 +241,11 @@ class SpriteEditor(QtW.QWidget):
         pal_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
-            width=60, on_clicked=self.file_palette_new, layout=pal_btn_layout)
+            width=60, on_clicked=self.palette_entry_new, layout=pal_btn_layout)
         self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes",
-            width=60, on_clicked=self.file_palette_load, enabled=False, layout=pal_btn_layout)
+            width=60, on_clicked=self.palette_entry_load, enabled=False, layout=pal_btn_layout)
         self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data",
-            width=60, on_clicked=self.file_palette_save, enabled=False, layout=pal_btn_layout)
+            width=60, on_clicked=self.palette_entry_save, enabled=False, layout=pal_btn_layout)
 
         palettes_layout.addLayout(pal_btn_layout)
 
@@ -303,7 +303,7 @@ class SpriteEditor(QtW.QWidget):
         items = ["Line 0", "Line 1", "Line 2", "Line 3"]
         self.viewer_line_combo = create_combobox(
             tooltip="Choose a palette line to view art tiles with",
-            on_index_changed=self.update_tile_viewer, items=items, layout=viewer_controls)
+            on_index_changed=self.render_art_tiles, items=items, layout=viewer_controls)
         viewer_controls.addStretch()
         art_viewer_layout.addLayout(viewer_controls)
 
@@ -407,13 +407,13 @@ class SpriteEditor(QtW.QWidget):
         # File data is no longer filled out here (now done upon dropdown change)
         # Now the data is just loaded in when the button is pressed
         if self.pal_rows:
-            self.file_palette_load()
+            self.palette_entry_load()
 
         if self.art_rows:
-            self.file_art_load()
+            self.art_entry_load()
 
         if self.map_widget:
-            self.file_mapping_load()
+            self.mapping_entry_load()
 
     def file_sprite_save(self):
         """Saves all loaded sprite assets and saves build to the project"""
@@ -442,9 +442,9 @@ class SpriteEditor(QtW.QWidget):
             return
 
         # Save sprite assets
-        self.file_palette_save()
-        self.file_art_save()
-        self.file_mapping_save()
+        self.palette_entry_save()
+        self.art_entry_save()
+        self.mapping_entry_save()
 
         # JSON SAVING
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -550,8 +550,8 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
             QtW.QMessageBox.StandardButton.No
         ) == QtW.QMessageBox.StandardButton.Yes:
-            self.sprite_data_flush()
-            self.sprite_manager_clear()
+            self.sprite_clear_data()
+            self.filemanager_clear()
 
             main_win = self.window()
             project_dir = getattr(main_win, "project_root_dir", None)
@@ -580,11 +580,11 @@ class SpriteEditor(QtW.QWidget):
                 del self.project_sprite_builds[sprite_name]
 
             self.active_sprite_build = None
-            self.populate_sprite_list(self.project_sprite_builds)
+            self.proj_populate_sprite_list(self.project_sprite_builds)
 
     def file_sprite_clear(self):
         # Clear out all sprite data
-        self.sprite_data_flush()
+        self.sprite_clear_data()
 
         # Prompt user before clearing out File Manager widgets
         if QtW.QMessageBox.question(
@@ -592,26 +592,175 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
             QtW.QMessageBox.StandardButton.Yes
         ) == QtW.QMessageBox.StandardButton.Yes:
-            self.sprite_manager_clear()
+            self.filemanager_clear()
 
-    def sprite_manager_clear(self):
-        """Clear out all files stored in the File Manager."""
+
+    # --------------------------------------------------
+    # Project File Selection
+    # --------------------------------------------------
+    def proj_populate_sprite_list(self, sprite_builds):
+        self.project_sprite_builds = sprite_builds
+
+        self.spr_dropdown.blockSignals(True)
+        self.spr_dropdown.clear()
+
+        if not sprite_builds:
+            self.spr_dropdown.addItem("No Sprites Found", userData=None)
+            self.spr_dropdown.setEnabled(False)
+            self.spr_dropdown.blockSignals(False)
+            return
+
+        self.spr_dropdown.setEnabled(True)
+        for sprite_name, config in sprite_builds.items():
+            # Display key name in dropdown
+            self.spr_dropdown.addItem(sprite_name, userData=config)
+
+        # Silently reset the selection
+        self.spr_dropdown.setCurrentIndex(-1)
+        self.spr_dropdown.blockSignals(False)
+
+        # Only auto-load index 0 if we aren't currently targeting a specific sprite build
+        if not self.active_sprite_build and self.spr_dropdown.count() > 0:
+            self.spr_dropdown.setCurrentIndex(0)
+
+    # File Toolbar Dropdown function
+    def on_sprite_dropdown_changed(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
+            return
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Ensure 'sprites' dictionary exists and contains our sprite
+        sprites_dict = main_win.active_project_data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        # Get data for the newly selected sprite build
+        sprite_data = sprites_dict[sprite_name]
+        if not sprite_data:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Helper to convert relative paths/Path objects to full absolute path strings
+        def resolve_path_str(raw_path):
+            if not raw_path:
+                return ""
+            p_obj = Path(raw_path)
+            if project_dir and not p_obj.is_absolute():
+                return str((Path(start_dir) / p_obj).resolve())
+            return str(p_obj)
+
+        # Clean out File Manager ONLY (Leaves loaded data untouched)
+        self.filemanager_clear()
+
+        # Fill out palette data
+        for pal in sprite_data.get("palettes", []):
+            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
+            self.palette_add_entry(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, line_combo = self.pal_rows[-1]
+            line_combo.setCurrentText(str(pal.get("length", 1)))
+
+        # Fill out art data
+        for art in sprite_data.get("art", []):
+            raw_path = art.get("path", "") if isinstance(art, dict) else art
+            self.art_add_entry(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
+            offset_spin.setValue(art.get("offset", 0))
+            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
+            count_spin.setValue(0)  # Load all tiles by default
+
+        # Fill out mapping data
+        mappings = sprite_data.get("mappings", {})
+        dplcs = sprite_data.get("dplcs", {})
+
+        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
+        if map_path or mappings:
+            self.mapping_add_entry(resolve_path_str(map_path))
+
+            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
+            spr_format = sprite_data.get("format", 1)
+            self.map_dropdown.setCurrentIndex(spr_format - 1)
+
+            # Access layout widgets with findChildren to fill in information
+            if self.map_widget:
+                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
+                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+
+                for _l in line_edits:
+                    if _l.placeholderText() == "Map_":
+                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
+
+                # Toggle and populate DPLCs if enabled
+                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
+                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
+                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
+                    for _l in line_edits:
+                        if _l.placeholderText() == "DPLC Filepath...":
+                            _l.setText(resolve_path_str(dplcs.get("path", "")))
+                        elif _l.placeholderText() == "DPLC_":
+                            _l.setText(dplcs.get("label", ""))
+
+
+    # --------------------------------------------------
+    # File Manager
+    # --------------------------------------------------
+    def filemanager_clear(self):
+        """Remove file-manager entries without clearing loaded data or deleting files."""
         # Clean out Palette rows
         while self.pal_rows:
             path_input, line_combo = self.pal_rows[0]
-            self.remove_palette_row(path_input.parentWidget(), line_combo, path_input)
+            self.palette_remove_entry(path_input.parentWidget(), line_combo, path_input)
 
         # Clean out Art rows
         while self.art_rows:
             path_input, _, _, _ = self.art_rows[0]
             top_widget = path_input.parentWidget().parentWidget()
-            self.remove_art_row(top_widget, self.art_rows[0])
+            self.art_remove_entry(top_widget, self.art_rows[0])
 
         # Clean out Mapping rows
         if self.map_widget:
-            self.remove_mapping_asset()
+            self.mapping_remove_entry()
 
-    def sprite_data_flush(self):
+    def filemanager_toggle(self, expanded):
+        # Collapse handler
+        if expanded:
+            # Allow the file manager panel to grow again
+            self.spr_file_group.setMinimumHeight(0)
+            self.spr_file_group.setMaximumHeight(16777215)
+            self.filemanager_tabs.show()
+            self.spr_file_group.layout().activate()
+
+            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.DownArrow)
+            self.spr_file_group.layout().activate()
+
+        else:
+            self.filemanager_tabs.hide()
+            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.RightArrow)
+
+            # Shrink the panel to its header
+            self.spr_file_group.layout().activate()
+            self.spr_file_group.setFixedHeight(self.spr_file_group.sizeHint().height())
+
+
+    # --------------------------------------------------
+    # Sprite Functions
+    # --------------------------------------------------
+    def sprite_clear_data(self):
+        """Clear loaded assets and reset previews, keeping file-manager entries."""
         # Clear palette to black
         black = QColor(0, 0, 0)
         self.palette_colors = [black for _i in range(64)]
@@ -631,142 +780,14 @@ class SpriteEditor(QtW.QWidget):
         self.frame_spinbox.setRange(0, 0)
 
         # Refresh (clear) tile and sprite views
-        self.update_tile_viewer()
+        self.render_art_tiles()
         self.render_sprite_frame()
 
-    def file_palette_new(self):
-        # Get top-level window to access project file
-        main_win = self.window()
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
 
-        # # Save dialog for new palette file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "New Palette File", start_dir, "Palette Files (*.pal *.bin);;All Files (*)"
-        )
-
-        # If successful, create a new row under the palette tab
-        if file_path:
-            self.add_palette_row(file_path)
-
-    def file_palette_load(self):
-        """Loads palette(s) from the filepath(s) specified into the palette grid"""
-        # Palette index to load the next color into
-        current_index = 0
-
-        # Loop for each filepath added
-        for path_input, line_combo in self.pal_rows:
-            file_path_str = path_input.text().strip()
-            if not file_path_str:
-                continue
-
-            path = Path(file_path_str)
-            num_lines = int(line_combo.currentText() or "1")
-
-            # If the file doesn't exist, skip loading for this entry
-            if not path.exists():
-                current_index += num_lines * 16
-                continue
-
-            # Number of colors to load based on number of lines in the entry
-            num_colors = num_lines * 16
-
-            # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
-            try:
-                with open(path, "rb") as f:
-                    data = f.read(num_colors * 2)   # Read 2 bytes for every color loaded
-                    loaded_colors = []
-                    for _i in range(0, len(data), 2):
-                        if _i + 1 < len(data):
-                            val = (data[_i] << 8) | data[_i + 1]
-
-                            # Extract 3-bit values (0-7)
-                            r_step = (val >> 1) & 0x07
-                            g_step = (val >> 5) & 0x07
-                            b_step = (val >> 9) & 0x07
-
-                            # Map them directly to color values
-                            _r = MDCOLOR_VALUES[r_step]
-                            _g = MDCOLOR_VALUES[g_step]
-                            _b = MDCOLOR_VALUES[b_step]
-
-                            loaded_colors.append(QColor(_r, _g, _b))
-
-                    # Slot colors into the palette grid
-                    for _i, color in enumerate(loaded_colors):
-                        target_idx = current_index + _i
-                        if target_idx < len(self.palette_colors):
-                            self.palette_colors[target_idx] = color
-
-            except Exception as e:
-                print(f"Error loading palette {path.name}: {e}")
-                QtW.QMessageBox.warning(
-                    self, "Palette Load Error", f"Could not load palette file {path.name}:\n{str(e)}"
-                )
-
-            # Increment color index for the next file load
-            current_index += num_colors
-
-        # Refresh the palette grid
-        for _i, color in enumerate(self.palette_colors):
-            if _i < len(self.palette_boxes):
-                self.palette_boxes[_i].set_color(color)
-
-        # Refresh VRAM after loading new palette
-        self.update_tile_viewer()
-        # Refresh frame window
-        self.render_sprite_frame()
-
-    def file_palette_save(self):
-        """Saves palette grid colors to the files specified in the file manager"""
-        current_index = 0
-
-        for path_input, line_combo in self.pal_rows:
-            file_path_str = path_input.text().strip()
-            num_lines = int(line_combo.currentText() or "1")
-            num_colors = num_lines * 16
-
-            # If a filepath is empty, skip those palette rows and advance color offset index
-            if not file_path_str:
-                current_index += num_colors
-                continue
-
-            path = Path(file_path_str)
-
-            try:
-                # Ensure parent directory of a new filepath exists
-                path.parent.mkdir(parents=True, exist_ok=True)
-
-                binary_data = bytearray()
-                for _i in range(num_colors):
-                    target_idx = current_index + _i
-                    if target_idx < len(self.palette_colors):
-                        color = self.palette_colors[target_idx]
-                    else:
-                        color = QColor(0, 0, 0)
-
-                    # Convert color to compatible color components
-                    _r = snap_to_md_colors(color.red())
-                    _g = snap_to_md_colors(color.green())
-                    _b = snap_to_md_colors(color.blue())
-
-                    # store in 0BGR format
-                    binary_data.append((_b << 1) & 0xFF)
-                    val = (_g << 5) | (_r << 1)
-                    binary_data.append(val & 0xFF)
-
-                # Write binary data to file (creates file if it doesn't exist)
-                with open(path, "wb") as f:
-                    f.write(binary_data)
-
-            except Exception as e:
-                print(f"Error saving palette {path.name}: {e}")
-                QtW.QMessageBox.warning(self, "Save Error", f"Could not save palette file {path.name}:\n{str(e)}")
-
-            # Advance color index for the next row file
-            current_index += num_colors
-
-    def file_art_new(self):
+    # --------------------------------------------------
+    # Art File Entries
+    # --------------------------------------------------
+    def art_entry_new(self):
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -786,9 +807,9 @@ class SpriteEditor(QtW.QWidget):
 
         # If successful, create a new row under the art tab
         if file_path:
-            self.add_art_row(file_path)
+            self.art_add_entry(file_path)
 
-    def file_art_load(self):
+    def art_entry_load(self):
         """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
         # Flush out VRAM
         self.vram_tiles.clear()
@@ -861,11 +882,11 @@ class SpriteEditor(QtW.QWidget):
                 )
 
         # Refresh VRAM after loading art
-        self.update_tile_viewer()
+        self.render_art_tiles()
         # Refresh frame window
         self.render_sprite_frame()
 
-    def file_art_save(self):
+    def art_entry_save(self):
         for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
             file_path_str = path_input.text().strip()
             if not file_path_str:
@@ -927,169 +948,7 @@ class SpriteEditor(QtW.QWidget):
                     self, "Art Save Error", f"Could not save art file {path.name}:\n{str(e)}"
                 )
 
-    def file_mapping_new(self):
-        # Get top-level window to access project file
-        main_win = self.window()
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
-
-        # Save dialog for new mapping file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "New Mapping File", start_dir, "Mapping Files (*.asm *.bin);;All Files (*)"
-        )
-
-        # If successful, create new widgets under the mappings tab
-        if file_path:
-            self.add_mapping_asset(file_path)
-
-    def file_mapping_load(self):
-        if not self.map_path_input:
-            return
-
-        # If a filepath is empty, don't load
-        file_path_str = self.map_path_input.text().strip()
-        if not file_path_str:
-            return
-
-        # If the file doesn't exist, don't load
-        path = Path(file_path_str)
-        if not path.exists():
-            QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
-            return
-
-        # Flush out mapping frame data
-        self.map_frames.clear()
-
-        try:
-            # Load sprite mappings based on selected version
-            map_version = self.map_dropdown.currentIndex() + 1
-            load_mappings(self, path, map_version)
-
-            # Refresh frame window
-            self.render_sprite_frame()
-
-            QtW.QMessageBox.information(
-                self, "Mappings Loaded",
-                f"Successfully loaded {len(self.map_frames)} frames from {path.name}.\n\n(DPLCs unavailable.)"
-            )
-
-        except Exception as e:
-            print(f"Error loading mappings {path.name}: {e}")
-            QtW.QMessageBox.warning(
-                self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
-            )
-
-    def file_mapping_save(self):
-        if not self.map_path_input or not self.map_path_input:
-            QtW.QMessageBox.warning(self, "Save Error", "No mapping asset configured.")
-            return
-
-        # If a filepath is empty, don't load
-        file_path_str = self.map_path_input.text().strip()
-        if not file_path_str:
-            QtW.QMessageBox.warning(self, "Save Error", "Please specify a valid mapping filepath.")
-            return
-
-        path = Path(file_path_str)
-
-        try:
-            # Load sprite mappings
-            save_mappings(self, path)
-
-            QtW.QMessageBox.information(
-                self, "Mappings Saved",
-                f"Successfully saved {len(self.map_frames)} frames to {path.name}."
-            )
-
-        except Exception as e:
-            print(f"Error loading mappings {path.name}: {e}")
-            QtW.QMessageBox.warning(
-                self, "Mapping Save Error", f"Could not save mappings to {path.name}:\n{str(e)}"
-            )
-
-    # File Manager Functions
-    def add_palette_row(self, file_path):
-        # Appends a 3-widget row to the right-hand panel for palette editing
-        row_widget = QtW.QWidget()
-        row_layout = QtW.QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Filepath text box
-        path_input = QtW.QLineEdit(file_path)
-
-        # Line count dropdown (1-4)
-        line_combo = QtW.QComboBox()
-        line_combo.addItem("1")    # Prime it with 1 for eval_pal_capacity
-        line_combo.setFixedWidth(50)
-
-        # Track the combo boxes in a list for evaluation
-        self.pal_line_combos.append(line_combo)
-        self.pal_rows.append((path_input, line_combo))
-
-        # Remove button
-        btn_remove = QtW.QPushButton("Remove")
-        btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(
-            lambda checked=False, _r=row_widget, _c=line_combo,
-                   _p=path_input: self.remove_palette_row(_r, _c, _p)
-        )
-
-        # Re-evaluate capacity whenever a dropdown value is changed
-        line_combo.currentIndexChanged.connect(self.eval_pal_capacity)
-
-        row_layout.addWidget(path_input, stretch=1)
-        row_layout.addWidget(line_combo)
-        row_layout.addWidget(btn_remove)
-
-        self.pal_entries_layout.addWidget(row_widget)
-
-        # Seems redundant, but we need an initial evaluation
-        self.eval_pal_capacity()
-
-    def remove_palette_row(self, row_widget, line_combo, path_input):
-        # Removes a palette widget row and re-evaluate capacity
-        if line_combo in self.pal_line_combos:
-            self.pal_line_combos.remove(line_combo)
-
-        row = (path_input, line_combo)
-        if row in self.pal_rows:
-            self.pal_rows.remove(row)
-
-        self.pal_entries_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
-
-        self.eval_pal_capacity()
-
-    def eval_pal_capacity(self):
-        # Sum the values of all active line combo boxes
-        total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
-
-        # Disable New button if we reach the 4-line limit
-        is_full = (total_lines >= 4)
-        self.btn_pal_add.setDisabled(is_full)
-
-        # Load/Save are only enabled when we have palette filepaths in the system
-        has_rows = len(self.pal_rows) > 0
-        self.btn_pal_load.setEnabled(has_rows)
-        self.btn_pal_save.setEnabled(has_rows)
-
-        # Dynamically restrict each dropdown so the user can't select a value that exceeds 4
-        for combo in self.pal_line_combos:
-            current_val = int(combo.currentText() or "1")
-            # Max allowed for this specific combo is 4 minus the lines taken up
-            max_allowed = 4 - (total_lines - current_val)
-
-            # Rebuild dropdown options
-            combo.blockSignals(True)
-            combo.clear()
-
-            for _i in range(1, max_allowed + 1):
-                combo.addItem(str(_i))
-
-            combo.setCurrentText(str(current_val))
-            combo.blockSignals(False)
-
-    def add_art_row(self, file_path):
+    def art_add_entry(self, file_path):
         # Cap sprite build at 3 art files
         if len(self.art_rows) >= 3:
             return
@@ -1160,7 +1019,7 @@ class SpriteEditor(QtW.QWidget):
         btn_remove = QtW.QPushButton("Remove")
         btn_remove.setFixedWidth(50)
         btn_remove.clicked.connect(
-            lambda checked=False, _r=artfile_widget, _data=row_data: self.remove_art_row(_r, _data)
+            lambda checked=False, _r=artfile_widget, _data=row_data: self.art_remove_entry(_r, _data)
         )
         # Spacer absorbs all extra space before the Remove button
         art_row2.addStretch()
@@ -1173,9 +1032,9 @@ class SpriteEditor(QtW.QWidget):
         self.art_entries_layout.addWidget(artfile_widget)
 
         # Initial evaluation
-        self.eval_art_capacity()
+        self.art_update_file_controls()
 
-    def remove_art_row(self, row_widget, row_data):
+    def art_remove_entry(self, row_widget, row_data):
         # Removes an art widget row and re-evaluate capacity
         if row_data in self.art_rows:
             self.art_rows.remove(row_data)
@@ -1183,9 +1042,9 @@ class SpriteEditor(QtW.QWidget):
         self.art_entries_layout.removeWidget(row_widget)
         row_widget.deleteLater()
 
-        self.eval_art_capacity()
+        self.art_update_file_controls()
 
-    def eval_art_capacity(self):
+    def art_update_file_controls(self):
         # Disable Add button if we reach the 3-file limit
         is_full = (len(self.art_rows) >= 3)
         self.btn_art_add.setDisabled(is_full)
@@ -1195,7 +1054,91 @@ class SpriteEditor(QtW.QWidget):
         self.btn_art_load.setEnabled(has_rows)
         self.btn_art_save.setEnabled(has_rows)
 
-    def add_mapping_asset(self, file_path):
+
+    # --------------------------------------------------
+    # Mapping File Entries
+    # --------------------------------------------------
+    def mapping_entry_new(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new mapping file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "New Mapping File", start_dir, "Mapping Files (*.asm *.bin);;All Files (*)"
+        )
+
+        # If successful, create new widgets under the mappings tab
+        if file_path:
+            self.mapping_add_entry(file_path)
+
+    def mapping_entry_load(self):
+        if not self.map_path_input:
+            return
+
+        # If a filepath is empty, don't load
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            return
+
+        # If the file doesn't exist, don't load
+        path = Path(file_path_str)
+        if not path.exists():
+            QtW.QMessageBox.warning(self, "File Not Found", f"Cannot find mapping file:\n{path}")
+            return
+
+        # Flush out mapping frame data
+        self.map_frames.clear()
+
+        try:
+            # Load sprite mappings based on selected version
+            map_version = self.map_dropdown.currentIndex() + 1
+            load_mappings(self, path, map_version)
+
+            # Refresh frame window
+            self.render_sprite_frame()
+
+            QtW.QMessageBox.information(
+                self, "Mappings Loaded",
+                f"Successfully loaded {len(self.map_frames)} frames from {path.name}.\n\n(DPLCs unavailable.)"
+            )
+
+        except Exception as e:
+            print(f"Error loading mappings {path.name}: {e}")
+            QtW.QMessageBox.warning(
+                self, "Mapping Load Error", f"Could not load mappings {path.name}:\n{str(e)}"
+            )
+
+    def mapping_entry_save(self):
+        if not self.map_path_input or not self.map_path_input:
+            QtW.QMessageBox.warning(self, "Save Error", "No mapping asset configured.")
+            return
+
+        # If a filepath is empty, don't load
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            QtW.QMessageBox.warning(self, "Save Error", "Please specify a valid mapping filepath.")
+            return
+
+        path = Path(file_path_str)
+
+        try:
+            # Load sprite mappings
+            save_mappings(self, path)
+
+            QtW.QMessageBox.information(
+                self, "Mappings Saved",
+                f"Successfully saved {len(self.map_frames)} frames to {path.name}."
+            )
+
+        except Exception as e:
+            print(f"Error loading mappings {path.name}: {e}")
+            QtW.QMessageBox.warning(
+                self, "Mapping Save Error", f"Could not save mappings to {path.name}:\n{str(e)}"
+            )
+
+    def mapping_add_entry(self, file_path):
         # Prevent adding multiple mapping assets
         if self.map_widget is not None:
             return
@@ -1217,7 +1160,7 @@ class SpriteEditor(QtW.QWidget):
 
         btn_remove = QtW.QPushButton("Remove")
         btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(self.remove_mapping_asset)
+        btn_remove.clicked.connect(self.mapping_remove_entry)
 
         map_row.addWidget(self.map_path_input, stretch=1)
         map_row.addWidget(self.map_name_input)
@@ -1265,7 +1208,7 @@ class SpriteEditor(QtW.QWidget):
         # Browse button to grab the DPLC file
         btn_dplc_browse = QtW.QPushButton("...")
         btn_dplc_browse.setFixedWidth(30)
-        btn_dplc_browse.clicked.connect(lambda: self.browse_dplc(dplc_path_input))
+        btn_dplc_browse.clicked.connect(lambda: self.mapping_dplc_browse(dplc_path_input))
 
         dplc_name_input = QtW.QLineEdit()
         dplc_name_input.setPlaceholderText("DPLC_")
@@ -1290,24 +1233,9 @@ class SpriteEditor(QtW.QWidget):
         layout.addWidget(dplc_row_widget)
 
         self.map_entries_layout.addWidget(self.map_widget)
-        self.eval_map_capacity()
+        self.mapping_update_file_controls()
 
-    def browse_dplc(self, line_edit):
-        # Get top-level window to access project file
-        main_win = self.window()
-        project_dir = getattr(main_win, "project_root_dir", None)
-        start_dir = str(project_dir) if project_dir else ""
-
-        # Save dialog for new DPLC file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "Select DPLC File", start_dir, "DPLC Files (*.asm *.bin);;All Files (*)"
-        )
-
-        # If successful, store DPLC filepath
-        if file_path:
-            line_edit.setText(file_path)
-
-    def remove_mapping_asset(self):
+    def mapping_remove_entry(self):
         # Removes the mapping/DPLC widget block and re-enables the Add button
         if self.map_widget:
             # Remove widget group from the layout
@@ -1323,9 +1251,9 @@ class SpriteEditor(QtW.QWidget):
             self.macro_cb = None
 
         # This re-enables the Add button
-        self.eval_map_capacity()
+        self.mapping_update_file_controls()
 
-    def eval_map_capacity(self):
+    def mapping_update_file_controls(self):
         # Disable Add and Enable Load/Save if map asset is loaded
         has_asset = self.map_widget is not None
 
@@ -1333,124 +1261,243 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
 
-    # Dropdown functions
-    def populate_sprite_list(self, sprite_builds):
-        self.project_sprite_builds = sprite_builds
-
-        self.spr_dropdown.blockSignals(True)
-        self.spr_dropdown.clear()
-
-        if not sprite_builds:
-            self.spr_dropdown.addItem("No Sprites Found", userData=None)
-            self.spr_dropdown.setEnabled(False)
-            self.spr_dropdown.blockSignals(False)
-            return
-
-        self.spr_dropdown.setEnabled(True)
-        for sprite_name, config in sprite_builds.items():
-            # Display key name in dropdown
-            self.spr_dropdown.addItem(sprite_name, userData=config)
-
-        # Silently reset the selection
-        self.spr_dropdown.setCurrentIndex(-1)
-        self.spr_dropdown.blockSignals(False)
-
-        # Only auto-load index 0 if we aren't currently targeting a specific sprite build
-        if not self.active_sprite_build and self.spr_dropdown.count() > 0:
-            self.spr_dropdown.setCurrentIndex(0)
-
-    def on_sprite_build_changed(self):
+    def mapping_dplc_browse(self, line_edit):
         # Get top-level window to access project file
         main_win = self.window()
-
-        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
-        if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
-            return
-
-        # Get the selected sprite build name
-        sprite_name = self.spr_dropdown.currentText()
-        if not sprite_name or sprite_name == "No Sprites Found":
-            return
-
-        # Ensure 'sprites' dictionary exists and contains our sprite
-        sprites_dict = main_win.active_project_data.get("sprites", {})
-        if sprite_name not in sprites_dict:
-            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
-            return
-
-        # Get data for the newly selected sprite build
-        sprite_data = sprites_dict[sprite_name]
-        if not sprite_data:
-            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
-            return
         project_dir = getattr(main_win, "project_root_dir", None)
         start_dir = str(project_dir) if project_dir else ""
 
-        # Helper to convert relative paths/Path objects to full absolute path strings
-        def resolve_path_str(raw_path):
-            if not raw_path:
-                return ""
-            p_obj = Path(raw_path)
-            if project_dir and not p_obj.is_absolute():
-                return str((Path(start_dir) / p_obj).resolve())
-            return str(p_obj)
+        # Save dialog for new DPLC file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(
+            self, "Select DPLC File", start_dir, "DPLC Files (*.asm *.bin);;All Files (*)"
+        )
 
-        # Clean out File Manager ONLY (Leaves loaded data untouched)
-        self.sprite_manager_clear()
+        # If successful, store DPLC filepath
+        if file_path:
+            line_edit.setText(file_path)
 
-        # Fill out palette data
-        for pal in sprite_data.get("palettes", []):
-            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
-            self.add_palette_row(resolve_path_str(raw_path))
 
-            # New row at the end of the list
-            path_input, line_combo = self.pal_rows[-1]
-            line_combo.setCurrentText(str(pal.get("length", 1)))
+    # --------------------------------------------------
+    # Palette File Entries
+    # --------------------------------------------------
+    def palette_entry_new(self):
+        # Get top-level window to access project file
+        main_win = self.window()
+        project_dir = getattr(main_win, "project_root_dir", None)
+        start_dir = str(project_dir) if project_dir else ""
 
-        # Fill out art data
-        for art in sprite_data.get("art", []):
-            raw_path = art.get("path", "") if isinstance(art, dict) else art
-            self.add_art_row(resolve_path_str(raw_path))
+        # # Save dialog for new palette file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self,
+            "New Palette File", start_dir, "Palette Files (*.pal *.bin);;All Files (*)")
 
-            # New row at the end of the list
-            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
-            offset_spin.setValue(art.get("offset", 0))
-            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
-            count_spin.setValue(0)  # Load all tiles by default
+        # If successful, create a new row under the palette tab
+        if file_path:
+            self.palette_add_entry(file_path)
 
-        # Fill out mapping data
-        mappings = sprite_data.get("mappings", {})
-        dplcs = sprite_data.get("dplcs", {})
+    def palette_entry_load(self):
+        """Loads palette(s) from the filepath(s) specified into the palette grid"""
+        # Palette index to load the next color into
+        current_index = 0
 
-        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
-        if map_path or mappings:
-            self.add_mapping_asset(resolve_path_str(map_path))
+        # Loop for each filepath added
+        for path_input, line_combo in self.pal_rows:
+            file_path_str = path_input.text().strip()
+            if not file_path_str:
+                continue
 
-            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
-            spr_format = sprite_data.get("format", 1)
-            self.map_dropdown.setCurrentIndex(spr_format - 1)
+            path = Path(file_path_str)
+            num_lines = int(line_combo.currentText() or "1")
 
-            # Access layout widgets with findChildren to fill in information
-            if self.map_widget:
-                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
-                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+            # If the file doesn't exist, skip loading for this entry
+            if not path.exists():
+                current_index += num_lines * 16
+                continue
 
-                for _l in line_edits:
-                    if _l.placeholderText() == "Map_":
-                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
+            # Number of colors to load based on number of lines in the entry
+            num_colors = num_lines * 16
 
-                # Toggle and populate DPLCs if enabled
-                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
-                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
-                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
-                    for _l in line_edits:
-                        if _l.placeholderText() == "DPLC Filepath...":
-                            _l.setText(resolve_path_str(dplcs.get("path", "")))
-                        elif _l.placeholderText() == "DPLC_":
-                            _l.setText(dplcs.get("label", ""))
+            # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
+            try:
+                with open(path, "rb") as f:
+                    data = f.read(num_colors * 2)  # Read 2 bytes for every color loaded
+                    loaded_colors = []
+                    for _i in range(0, len(data), 2):
+                        if _i + 1 < len(data):
+                            val = (data[_i] << 8) | data[_i + 1]
 
-    # Rendering functions
-    def update_tile_viewer(self):
+                            # Extract 3-bit values (0-7)
+                            r_step = (val >> 1) & 0x07
+                            g_step = (val >> 5) & 0x07
+                            b_step = (val >> 9) & 0x07
+
+                            # Map them directly to color values
+                            _r = MDCOLOR_VALUES[r_step]
+                            _g = MDCOLOR_VALUES[g_step]
+                            _b = MDCOLOR_VALUES[b_step]
+
+                            loaded_colors.append(QColor(_r, _g, _b))
+
+                    # Slot colors into the palette grid
+                    for _i, color in enumerate(loaded_colors):
+                        target_idx = current_index + _i
+                        if target_idx < len(self.palette_colors):
+                            self.palette_colors[target_idx] = color
+
+            except Exception as e:
+                print(f"Error loading palette {path.name}: {e}")
+                QtW.QMessageBox.warning(
+                    self, "Palette Load Error", f"Could not load palette file {path.name}:\n{str(e)}"
+                )
+
+            # Increment color index for the next file load
+            current_index += num_colors
+
+        # Refresh the palette grid
+        for _i, color in enumerate(self.palette_colors):
+            if _i < len(self.palette_boxes):
+                self.palette_boxes[_i].set_color(color)
+
+        # Refresh VRAM after loading new palette
+        self.render_art_tiles()
+        # Refresh frame window
+        self.render_sprite_frame()
+
+    def palette_entry_save(self):
+        """Saves palette grid colors to the files specified in the file manager"""
+        current_index = 0
+
+        for path_input, line_combo in self.pal_rows:
+            file_path_str = path_input.text().strip()
+            num_lines = int(line_combo.currentText() or "1")
+            num_colors = num_lines * 16
+
+            # If a filepath is empty, skip those palette rows and advance color offset index
+            if not file_path_str:
+                current_index += num_colors
+                continue
+
+            path = Path(file_path_str)
+
+            try:
+                # Ensure parent directory of a new filepath exists
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+                binary_data = bytearray()
+                for _i in range(num_colors):
+                    target_idx = current_index + _i
+                    if target_idx < len(self.palette_colors):
+                        color = self.palette_colors[target_idx]
+                    else:
+                        color = QColor(0, 0, 0)
+
+                    # Convert color to compatible color components
+                    _r = snap_to_md_colors(color.red())
+                    _g = snap_to_md_colors(color.green())
+                    _b = snap_to_md_colors(color.blue())
+
+                    # store in 0BGR format
+                    binary_data.append((_b << 1) & 0xFF)
+                    val = (_g << 5) | (_r << 1)
+                    binary_data.append(val & 0xFF)
+
+                # Write binary data to file (creates file if it doesn't exist)
+                with open(path, "wb") as f:
+                    f.write(binary_data)
+
+            except Exception as e:
+                print(f"Error saving palette {path.name}: {e}")
+                QtW.QMessageBox.warning(self,
+                    "Save Error", f"Could not save palette file {path.name}:\n{str(e)}")
+
+            # Advance color index for the next row file
+            current_index += num_colors
+
+    def palette_add_entry(self, file_path):
+        # Appends a 3-widget row to the right-hand panel for palette editing
+        row_widget = QtW.QWidget()
+        row_layout = QtW.QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Filepath text box
+        path_input = QtW.QLineEdit(file_path)
+
+        # Line count dropdown (1-4)
+        line_combo = QtW.QComboBox()
+        line_combo.addItem("1")    # Prime it with 1 for palette_update_file_controls
+        line_combo.setFixedWidth(50)
+
+        # Track the combo boxes in a list for evaluation
+        self.pal_line_combos.append(line_combo)
+        self.pal_rows.append((path_input, line_combo))
+
+        # Remove button
+        btn_remove = QtW.QPushButton("Remove")
+        btn_remove.setFixedWidth(50)
+        btn_remove.clicked.connect(
+            lambda checked=False, _r=row_widget, _c=line_combo,
+                   _p=path_input: self.palette_remove_entry(_r, _c, _p)
+        )
+
+        # Re-evaluate capacity whenever a dropdown value is changed
+        line_combo.currentIndexChanged.connect(self.palette_update_file_controls)
+
+        row_layout.addWidget(path_input, stretch=1)
+        row_layout.addWidget(line_combo)
+        row_layout.addWidget(btn_remove)
+
+        self.pal_entries_layout.addWidget(row_widget)
+
+        # Seems redundant, but we need an initial evaluation
+        self.palette_update_file_controls()
+
+    def palette_remove_entry(self, row_widget, line_combo, path_input):
+        # Removes a palette widget row and re-evaluate capacity
+        if line_combo in self.pal_line_combos:
+            self.pal_line_combos.remove(line_combo)
+
+        row = (path_input, line_combo)
+        if row in self.pal_rows:
+            self.pal_rows.remove(row)
+
+        self.pal_entries_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+        self.palette_update_file_controls()
+
+    def palette_update_file_controls(self):
+        # Sum the values of all active line combo boxes
+        total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
+
+        # Disable New button if we reach the 4-line limit
+        is_full = (total_lines >= 4)
+        self.btn_pal_add.setDisabled(is_full)
+
+        # Load/Save are only enabled when we have palette filepaths in the system
+        has_rows = len(self.pal_rows) > 0
+        self.btn_pal_load.setEnabled(has_rows)
+        self.btn_pal_save.setEnabled(has_rows)
+
+        # Dynamically restrict each dropdown so the user can't select a value that exceeds 4
+        for combo in self.pal_line_combos:
+            current_val = int(combo.currentText() or "1")
+            # Max allowed for this specific combo is 4 minus the lines taken up
+            max_allowed = 4 - (total_lines - current_val)
+
+            # Rebuild dropdown options
+            combo.blockSignals(True)
+            combo.clear()
+
+            for _i in range(1, max_allowed + 1):
+                combo.addItem(str(_i))
+
+            combo.setCurrentText(str(current_val))
+            combo.blockSignals(False)
+
+
+    # --------------------------------------------------
+    # Rendering
+    # --------------------------------------------------
+    def render_art_tiles(self):
         """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
         # Size: 16 x 128 tiles
         vram_width_px = 16 * 8
@@ -1589,23 +1636,3 @@ class SpriteEditor(QtW.QWidget):
         )
 
         self.sprite_label.setPixmap(scaled_pixmap)
-
-    def filemanager_toggle(self, expanded):
-        # Collapse handler
-        if expanded:
-            # Allow the file manager panel to grow again
-            self.spr_file_group.setMinimumHeight(0)
-            self.spr_file_group.setMaximumHeight(16777215)
-            self.filemanager_tabs.show()
-            self.spr_file_group.layout().activate()
-
-            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.DownArrow)
-            self.spr_file_group.layout().activate()
-
-        else:
-            self.filemanager_tabs.hide()
-            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.RightArrow)
-
-            # Shrink the panel to its header
-            self.spr_file_group.layout().activate()
-            self.spr_file_group.setFixedHeight(self.spr_file_group.sizeHint().height())
