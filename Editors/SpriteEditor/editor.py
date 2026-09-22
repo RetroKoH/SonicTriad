@@ -65,8 +65,8 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_zoom = 2
 
         # Piece selection and dragging
-        self.selected_piece_index = None
-        self._piece_drag = None     # Remember where the mouse and piece were when dragging began
+        self.selected_pieces = set()
+        self.piece_drag = None     # Remember where the mouse and piece were when dragging began
 
         self.ui_init()
 
@@ -847,38 +847,75 @@ class SpriteEditor(QtW.QWidget):
         return None
 
     def sprite_clear_selection(self):
-        self.selected_piece_index = None
-        self._piece_drag = None
+        self.selected_pieces.clear()
+        self.piece_drag = None
 
     def on_sprite_frame_changed(self):
         self.sprite_clear_selection()
         self.render_sprite_frame()
 
-    def sprite_begin_drag(self, position):
+    def sprite_begin_drag(self, position, modifiers):
         x, y = self.sprite_mouse_to_mapping(position)
-        self.selected_piece_index = self.sprite_piece_at(x, y)
-        self._piece_drag = None
+        piece_index = self.sprite_piece_at(x, y)
+        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
 
-        if self.selected_piece_index is not None:
-            frame_index = self.frame_spinbox.value()
-            piece = self.map_frames[frame_index][self.selected_piece_index]
+        self.piece_drag = None
 
-            self._piece_drag = (frame_index, self.selected_piece_index,
-                x, y, piece["x"], piece["y"])
+        # Clicking empty space only clears selection without Ctrl
+        if piece_index is None:
+            if not ctrl:
+                self.selected_pieces.clear()
+
+            self.render_sprite_frame()
+            return
+
+        # Multi-select pieces
+        if ctrl:
+            if piece_index in self.selected_pieces:
+                # Ctrl-click removes this piece without starting a drag
+                self.selected_pieces.remove(piece_index)
+                self.render_sprite_frame()
+                return
+
+            self.selected_pieces.add(piece_index)
+
+        elif piece_index not in self.selected_pieces:
+            # Clicking a new piece replaces the selection
+            self.selected_pieces = {piece_index}
+
+        # Clicking an already-selected piece preserves the group
+        frame_index = self.frame_spinbox.value()
+        pieces = self.map_frames[frame_index]
+
+        start_positions = {
+            index: (pieces[index]["x"], pieces[index]["y"])
+            for index in self.selected_pieces
+        }
+
+        # Contains the original position of every selected piece
+        self.piece_drag = (frame_index, x, y, start_positions)
 
         self.render_sprite_frame()
 
     def sprite_drag_piece(self, position):
-        if self._piece_drag is None:
+        if self.piece_drag is None:
             return
 
-        frame_index, piece_index, mouse_x, mouse_y, start_x, start_y = self._piece_drag
+        frame_index, mouse_x, mouse_y, start_positions = self.piece_drag
 
-        # Cancel if the current frame or piece changed
+        # Cancel if the current frame changed
         if (
             frame_index != self.frame_spinbox.value()
             or not 0 <= frame_index < len(self.map_frames)
-            or not 0 <= piece_index < len(self.map_frames[frame_index])
+        ):
+            self.sprite_clear_selection()
+            return
+
+        pieces = self.map_frames[frame_index]
+
+        # Cancel if the current frame's piece data has changed
+        if not start_positions or any(
+            not 0 <= index < len(pieces) for index in start_positions
         ):
             self.sprite_clear_selection()
             return
@@ -887,25 +924,32 @@ class SpriteEditor(QtW.QWidget):
         dx = x - mouse_x
         dy = y - mouse_y
 
-        new_x = start_x + dx
-        new_y = start_y + dy
+        # Find the movement range that keeps every selected piece's
+        # position within our current -128..127 editing limits.
+        min_dx = max(-128 - start_x for start_x, _ in start_positions.values())
+        max_dx = min(127 - start_x for start_x, _ in start_positions.values())
+        min_dy = max(-128 - start_y for _, start_y in start_positions.values())
+        max_dy = min(127 - start_y for _, start_y in start_positions.values())
 
-        # Initial editing range for the current 256×256 canvas;
-        # Leave an existing out-of-range coordinate alone on that axis
-        # until the mouse actually moves along it
         if dx:
-            new_x = max(-128, min(127, new_x))
+            dx = max(min_dx, min(max_dx, dx)) if min_dx <= max_dx else 0
         if dy:
-            new_y = max(-128, min(127, new_y))
+            dy = max(min_dy, min(max_dy, dy)) if min_dy <= max_dy else 0
 
-        piece = self.map_frames[frame_index][piece_index]
+        changed = False     # re-render flag
 
-        if (piece["x"], piece["y"]) == (new_x, new_y):
-            return
+        for index, (start_x, start_y) in start_positions.items():
+            piece = pieces[index]
+            new_x = start_x + dx
+            new_y = start_y + dy
 
-        piece["x"] = new_x
-        piece["y"] = new_y
-        self.render_sprite_frame()
+            if (piece["x"], piece["y"]) != (new_x, new_y):
+                piece["x"] = new_x
+                piece["y"] = new_y
+                changed = True
+
+        if changed:
+            self.render_sprite_frame()
 
     def eventFilter(self, a0, a1):
         if a0 is self.sprite_label:
@@ -916,22 +960,22 @@ class SpriteEditor(QtW.QWidget):
                     QEvent.Type.MouseButtonDblClick,
             ):
                 if a1.button() == Qt.MouseButton.LeftButton:
-                    self.sprite_begin_drag(a1.position())
+                    self.sprite_begin_drag(a1.position(), a1.modifiers())
                     return True
 
             elif event_type == QEvent.Type.MouseMove:
-                if self._piece_drag is not None:
+                if self.piece_drag is not None:
                     if a1.buttons() & Qt.MouseButton.LeftButton:
                         self.sprite_drag_piece(a1.position())
                     else:
-                        self._piece_drag = None
+                        self.piece_drag = None
                     return True
 
             elif event_type == QEvent.Type.MouseButtonRelease:
                 if a1.button() == Qt.MouseButton.LeftButton:
                     # Apply the final position before ending the drag.
                     self.sprite_drag_piece(a1.position())
-                    self._piece_drag = None
+                    self.piece_drag = None
                     return True
 
         return super().eventFilter(a0, a1)
@@ -1781,20 +1825,25 @@ class SpriteEditor(QtW.QWidget):
                                 if color_idx < len(self.palette_colors):
                                     image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
 
-        # Draw the selection outline after all sprite pieces.
-        index = self.selected_piece_index
-        if index is not None and 0 <= index < len(frame_data):
-            piece = frame_data[index]
-
+        # Draw selection outlines after all sprite pieces.
+        if self.selected_pieces:
             painter = QPainter(image)
             painter.setPen(QColor(255, 255, 0))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(
-                center_x + piece["x"],
-                center_y + piece["y"],
-                piece["width"] * 8 - 1,
-                piece["height"] * 8 - 1,
-            )
+
+            for index in sorted(self.selected_pieces):
+                if not 0 <= index < len(frame_data):
+                    continue
+
+                piece = frame_data[index]
+
+                painter.drawRect(
+                    center_x + piece["x"],
+                    center_y + piece["y"],
+                    piece["width"] * 8 - 1,
+                    piece["height"] * 8 - 1,
+                )
+
             painter.end()
 
         self.render_sprite_image(image)
