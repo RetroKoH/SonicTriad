@@ -133,21 +133,6 @@ class SpriteEditor(QtW.QWidget):
         # Selection controls
         frame_controls = QtW.QHBoxLayout()
 
-        # The following items emulate an in-game object's art_tile OST
-        # VRAM Address Selector
-        frame_controls.addWidget(QtW.QLabel("VRAM Address:"))
-        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
-            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)",
-            on_value_changed=self.render_sprite_frame, layout=frame_controls)
-
-        # VRAM Base Palette Selector
-        frame_controls.addWidget(QtW.QLabel("Palette:"))
-        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
-            width=40, tooltip="Base Palette Line",
-            on_value_changed=self.render_sprite_frame, layout=frame_controls)
-
-        # VRAM Base Priority Checkbox (Consider adding later with additions)
-
         # Frame Selector
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
@@ -200,6 +185,21 @@ class SpriteEditor(QtW.QWidget):
             on_toggled=self.filemanager_toggle, layout=file_header_layout)
 
         file_header_layout.addStretch()
+
+        # The following items emulate an in-game object's art_tile OST
+        # VRAM Address Selector
+        file_header_layout.addWidget(QtW.QLabel("VRAM Address:"))
+        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
+            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)",
+            on_value_changed=self.render_sprite_frame, layout=file_header_layout)
+
+        # VRAM Base Palette Selector
+        file_header_layout.addWidget(QtW.QLabel("Palette:"))
+        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
+            width=40, tooltip="Base Palette Line",
+            on_value_changed=self.render_sprite_frame, layout=file_header_layout)
+
+        # VRAM Base Priority Checkbox (Consider adding later with additions)
         spr_file_layout.addLayout(file_header_layout)
 
         # File-related elements here
