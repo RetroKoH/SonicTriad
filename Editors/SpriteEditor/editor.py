@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QEvent, QPoint, QRect
 from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter
 
 from UI.widgets import (
@@ -68,6 +68,7 @@ class SpriteEditor(QtW.QWidget):
         self.hovered_piece = None   # Hovered pieces will have transparency if not selected
         self.selected_pieces = set()
         self.piece_drag = None      # Remember where the mouse and piece were when dragging began
+        self.selection_drag = None
 
         self.ui_init()
 
@@ -165,6 +166,19 @@ class SpriteEditor(QtW.QWidget):
             self.sprite_canvas_height * self.sprite_zoom)
         self.sprite_label.setMouseTracking(True)
         self.sprite_label.installEventFilter(self)      # install for click and drag mechanics
+
+        # Selection rectangle, positioned manually over the sprite canvas
+        # (To-Do: Color based on theme, or by preference)
+        self.selection_box = QtW.QFrame(self.sprite_label)
+        self.selection_box.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.selection_box.setStyleSheet("""
+            QFrame {
+                background-color: rgba(100, 180, 255, 45);
+                border: 1px solid rgba(100, 180, 255, 220);
+            }
+        """)
+        self.selection_box.hide()
 
         scroll_area = create_scrollarea(
             self.sprite_label, resizable=False, layout=sprite_viewer)
@@ -818,6 +832,82 @@ class SpriteEditor(QtW.QWidget):
         self.render_art_tiles()
         self.render_sprite_frame()
 
+    def sprite_begin_box_select(self, position, additive):
+        frame_index = self.frame_spinbox.value()
+        if not 0 <= frame_index < len(self.map_frames):
+            return
+
+        self.hovered_piece = None
+
+        self.selection_drag = {
+            "frame": frame_index,
+            "origin": position.toPoint(),
+            "initial_selection": (self.selected_pieces.copy() if additive else set()),
+            "started": False
+        }
+
+    def sprite_update_box_select(self, position):
+        drag = self.selection_drag
+        if drag is None:
+            return
+
+        frame_index = drag["frame"]
+
+        if frame_index != self.frame_spinbox.value() or not 0 <= frame_index < len(self.map_frames):
+            self.sprite_end_box_select()
+            return
+
+        point = position.toPoint()
+
+        # Keep the rectangle within the sprite canvas
+        point = QPoint(
+            max(0, min(self.sprite_label.width() - 1, point.x())),
+            max(0, min(self.sprite_label.height() - 1, point.y())),
+        )
+
+        if not drag["started"]:
+            distance = (point - drag["origin"]).manhattanLength()
+
+            if distance < QtW.QApplication.startDragDistance():
+                return
+
+            drag["started"] = True
+
+        # Normalization allows dragging in any direction
+        selection_rect = QRect(drag["origin"], point).normalized()
+
+        self.selection_box.setGeometry(selection_rect)
+        self.selection_box.show()
+        self.selection_box.raise_()
+
+        center_x = self.sprite_canvas_width // 2
+        center_y = self.sprite_canvas_height // 2
+        zoom = self.sprite_zoom
+
+        intersecting = set()
+
+        for index, piece in enumerate(self.map_frames[frame_index]):
+            # Convert mapping bounds to displayed canvas coordinates
+            piece_rect = QRect(
+                (center_x + piece["x"]) * zoom,
+                (center_y + piece["y"]) * zoom,
+                piece["width"] * 8 * zoom,
+                piece["height"] * 8 * zoom,
+            )
+
+            if selection_rect.intersects(piece_rect):
+                intersecting.add(index)
+
+        selection = drag["initial_selection"] | intersecting
+
+        if selection != self.selected_pieces:
+            self.selected_pieces = selection
+            self.render_sprite_frame()
+
+    def sprite_end_box_select(self):
+        self.selection_drag = None
+        self.selection_box.hide()
+
     def sprite_mouse_to_mapping(self, position):
         x = int(position.x() // self.sprite_zoom)
         x -= self.sprite_canvas_width // 2
@@ -853,6 +943,7 @@ class SpriteEditor(QtW.QWidget):
         self.selected_pieces.clear()
         self.piece_drag = None
         self.hovered_piece = None
+        self.sprite_end_box_select()
 
     def on_sprite_frame_changed(self):
         self.sprite_clear_selection()
@@ -882,13 +973,17 @@ class SpriteEditor(QtW.QWidget):
         piece_index = self.sprite_piece_at(x, y)
         ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
 
+        # Clear everything pertaining to click/drag
         self.piece_drag = None
+        self.sprite_end_box_select()
 
-        # Clicking empty space only clears selection without Ctrl
+        # Clicking empty space clears selection without Ctrl
+        # Also starts a potential box-selection gesture
         if piece_index is None:
             if not ctrl:
                 self.selected_pieces.clear()
 
+            self.sprite_begin_box_select(position, additive=ctrl)
             self.render_sprite_frame()
             return
 
@@ -948,7 +1043,7 @@ class SpriteEditor(QtW.QWidget):
         dy = y - mouse_y
 
         # Find the movement range that keeps every selected piece's
-        # position within our current -128..127 editing limits.
+        # position within our current -128..127 editing limits
         min_dx = max(-128 - start_x for start_x, _ in start_positions.values())
         max_dx = min(127 - start_x for start_x, _ in start_positions.values())
         min_dy = max(-128 - start_y for _, start_y in start_positions.values())
@@ -983,29 +1078,43 @@ class SpriteEditor(QtW.QWidget):
                 QEvent.Type.MouseButtonDblClick
             ):
                 if a1.button() == Qt.MouseButton.LeftButton:
-                    # sprite_begin_drag redraws after changing selection.
+                    # sprite_begin_drag redraws after changing selection
                     self.sprite_update_hover(a1.position(), redraw=False)
                     self.sprite_begin_drag(a1.position(), a1.modifiers())
                     return True
 
             elif event_type == QEvent.Type.MouseMove:
-                if self.piece_drag is not None and a1.buttons() & Qt.MouseButton.LeftButton:
+                left_held = bool(
+                    a1.buttons() & Qt.MouseButton.LeftButton)
+
+                if left_held and self.selection_drag is not None:
+                    self.sprite_update_box_select(a1.position())
+
+                elif left_held and self.piece_drag is not None:
                     self.sprite_drag_piece(a1.position())
+
                 else:
                     self.piece_drag = None
+                    self.sprite_end_box_select()
                     self.sprite_update_hover(a1.position())
 
                 return True
 
             elif event_type == QEvent.Type.MouseButtonRelease:
                 if a1.button() == Qt.MouseButton.LeftButton:
-                    # Apply the final position before ending the drag
-                    self.sprite_drag_piece(a1.position())
+                    if self.selection_drag is not None:
+                        self.sprite_update_box_select(a1.position())
+                        self.sprite_end_box_select()
+                    else:
+                        # Apply the final position before ending the drag
+                        self.sprite_drag_piece(a1.position())
+
                     self.piece_drag = None
                     self.sprite_update_hover(a1.position())
                     return True
 
             elif event_type == QEvent.Type.Leave:
+                # Clear hover, but let an active drag continue
                 self.sprite_update_hover()
 
         return super().eventFilter(a0, a1)
@@ -1081,7 +1190,7 @@ class SpriteEditor(QtW.QWidget):
                 # Set load count (if 0, all tiles will be loaded)
                 if user_count == 0:
                     tiles_to_load = tile_count
-                    # Move this to after the loading. If we hit 2048, we must truncate this count.
+                    # Move this to after the loading. If we hit 2048, we must truncate this count
                     count_spin.blockSignals(True)
                     count_spin.setValue(tile_count)
                     count_spin.blockSignals(False)
@@ -1836,7 +1945,7 @@ class SpriteEditor(QtW.QWidget):
             x_flip = piece['x_flip']
             y_flip = piece['y_flip']
 
-            # Selected pieces never receive the hover effect.
+            # Selected pieces never receive the hover effect
             hovered = piece_index == self.hovered_piece and piece_index not in self.selected_pieces
 
             if hovered:
