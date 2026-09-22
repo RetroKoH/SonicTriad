@@ -306,8 +306,20 @@ class SpriteEditor(QtW.QWidget):
         editing_layout = QtW.QVBoxLayout(editing_panel)
         editing_layout.setContentsMargins(0, 0, 0, 0)
 
+        # Palette stays above both editing tabs
         editing_layout.addWidget(self.ui_build_palette_preview())
-        editing_layout.addWidget(self.ui_build_art_viewer(), stretch=2)
+
+        # Editing tabs
+        self.editing_tabs = QtW.QTabWidget()
+
+        # Art: existing VRAM viewer and preview palette selector
+        self.editing_tabs.addTab(self.ui_build_art_viewer(), "Art")
+
+        # Mappings: empty space for future editing controls
+        self.mappings_tab = QtW.QWidget()
+        self.editing_tabs.addTab(self.mappings_tab, "Mappings")
+
+        editing_layout.addWidget(self.editing_tabs, stretch=2)
         return editing_panel
 
     def ui_build_palette_preview(self):
@@ -336,7 +348,7 @@ class SpriteEditor(QtW.QWidget):
         return spr_palette_group
 
     def ui_build_art_viewer(self):
-        self.vram_box = QtW.QGroupBox("Art Tile Viewer")
+        self.vram_box = QtW.QGroupBox()
         art_viewer_layout = QtW.QVBoxLayout(self.vram_box)
 
         # Active Palette Line Selector for the Viewer
