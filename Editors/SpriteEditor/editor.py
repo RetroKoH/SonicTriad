@@ -119,13 +119,22 @@ class SpriteEditor(QtW.QWidget):
         # Selection controls
         frame_controls = QtW.QHBoxLayout()
 
-        # VRAM Address Selector controls (To-Do: New function for Spinbox)
+        # The following items emulate an in-game object's art_tile OST
+        # VRAM Address Selector
         frame_controls.addWidget(QtW.QLabel("VRAM Address:"))
         self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
-            display_base=16, prefix="$", width=70, tooltip="Starting VRAM Tile Index (Hex)",
+            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)",
             on_value_changed=self.render_sprite_frame, layout=frame_controls)
 
-        # Frame Selector controls
+        # VRAM Base Palette Selector
+        frame_controls.addWidget(QtW.QLabel("Palette:"))
+        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
+            width=40, tooltip="Base Palette Line",
+            on_value_changed=self.render_sprite_frame, layout=frame_controls)
+
+        # VRAM Base Priority Checkbox (Consider adding later with additions)
+
+        # Frame Selector
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
             on_value_changed=self.render_sprite_frame, layout=frame_controls)
@@ -402,6 +411,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Set global VRAM index and reset frame counter
         self.vram_spinbox.setValue(sprite_data.get("vram_index", 0))
+        self.sprpal_spinbox.setValue(sprite_data.get("palette_line", 0))
         self.frame_spinbox.setValue(0)
 
         # File data is no longer filled out here (now done upon dropdown change)
@@ -460,8 +470,9 @@ class SpriteEditor(QtW.QWidget):
                 # Fallback to absolute path if it resides outside the project root
                 return str(path_str)
 
-        # Store Sprite Build data (First, the global VRAM starting point)
+        # Store Sprite Build data (First, the sprite's art_tile OST value)
         sprite_data["vram_index"] = self.vram_spinbox.value()
+        sprite_data["palette_line"] = self.sprpal_spinbox.value()
 
         # If a mapping file hasn't been added, this widget will not be present
         if self.map_dropdown is not None:
@@ -776,6 +787,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Reset UI widgets in the Sprite Viewer
         self.vram_spinbox.setValue(0)
+        self.sprpal_spinbox.setValue(0)
         self.frame_spinbox.setValue(0)
         self.frame_spinbox.setRange(0, 0)
 
@@ -1571,6 +1583,8 @@ class SpriteEditor(QtW.QWidget):
 
         # Get starting VRAM tile location (base location that start_tile + tile_offset will go off from)
         tile_idx = self.vram_spinbox.value()
+        # Get base palette line (sprite mappings offset this, and the value wraps (0 to 3)
+        pal_idx = self.sprpal_spinbox.value()
 
         if frame_idx >= len(self.map_frames):
             return
@@ -1579,12 +1593,12 @@ class SpriteEditor(QtW.QWidget):
 
         # Iterate over every piece in this frame
         for piece in frame_data:
-            start_tile = piece['tile']
+            start_tile = (tile_idx + piece['tile']) & 2047
             wid = piece['width']
             hgt = piece['height']
             px_offset = piece['x']
             py_offset = piece['y']
-            pal_line = piece['palette']
+            pal_line = (pal_idx + piece['palette']) & 3
             x_flip = piece['x_flip']
             y_flip = piece['y_flip']
 
@@ -1592,7 +1606,7 @@ class SpriteEditor(QtW.QWidget):
             for tx in range(wid):
                 for ty in range(hgt):
                     tile_offset = (tx * hgt) + ty
-                    actual_tile_idx = tile_idx + start_tile + tile_offset
+                    actual_tile_idx = start_tile + tile_offset
 
                     # If flipped, the placement of the 8x8 blocks mirrors
                     draw_tx = (wid - 1 - tx) if x_flip else tx
