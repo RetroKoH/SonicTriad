@@ -3,7 +3,7 @@ from PyQt6.QtCore import Qt
 
 def create_combobox(
     *, parent=None, max_width=300, fixed_height=25,
-    tooltip="", on_index_changed=None, layout=None
+    tooltip="", items=None, on_index_changed=None, layout=None
 ):
     combo = QtW.QComboBox(parent)
 
@@ -21,6 +21,9 @@ def create_combobox(
 
     if tooltip:
         combo.setToolTip(tooltip)
+
+    if items is not None:
+        combo.addItems(items)
 
     if on_index_changed is not None:
         combo.currentIndexChanged.connect(on_index_changed)
@@ -280,6 +283,52 @@ def create_slider(
         layout.addWidget(slider)
 
     return slider
+
+def create_spinbox(
+    *, parent=None, minimum=0, maximum=99, value=0,
+    single_step=1, display_base=10, prefix="", suffix="",
+    tooltip="", width=None, height=None, alignment=None,
+    enabled=True, read_only=False, wrapping=False,
+    keyboard_tracking=True, on_value_changed=None,
+    on_editing_finished=None, layout=None
+):
+    spinbox = QtW.QSpinBox(parent)
+
+    spinbox.setRange(minimum, maximum)
+    spinbox.setSingleStep(single_step)
+    spinbox.setDisplayIntegerBase(display_base)
+    spinbox.setPrefix(prefix)
+    spinbox.setSuffix(suffix)
+    spinbox.setEnabled(enabled)
+    spinbox.setReadOnly(read_only)
+    spinbox.setWrapping(wrapping)
+    spinbox.setKeyboardTracking(keyboard_tracking)
+
+    if tooltip:
+        spinbox.setToolTip(tooltip)
+
+    if width is not None:
+        spinbox.setFixedWidth(width)
+
+    if height is not None:
+        spinbox.setFixedHeight(height)
+
+    if alignment is not None:
+        spinbox.setAlignment(alignment)
+
+    # Set the initial value before connecting callbacks.
+    spinbox.setValue(value)
+
+    if on_value_changed is not None:
+        spinbox.valueChanged.connect(on_value_changed)
+
+    if on_editing_finished is not None:
+        spinbox.editingFinished.connect(on_editing_finished)
+
+    if layout is not None:
+        layout.addWidget(spinbox)
+
+    return spinbox
 
 def create_splitter(
     widgets=(), *, parent=None, orientation=Qt.Orientation.Horizontal,

@@ -1,9 +1,18 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
+
+from UI.widgets import (
+    create_combobox,
+    create_pushbutton,
+    create_scrollarea,
+    create_splitter,
+    create_spinbox,
+    create_toolbutton
+)
 
 from Constants import *
 from PaletteEditor.editor import snap_to_md_colors
@@ -49,53 +58,60 @@ class SpriteEditor(QtW.QWidget):
 
         self._current_dropdown_index = -1
 
-        self.init_ui()
+        self.ui_init()
 
-    def init_ui(self):
-        main_layout = QtW.QHBoxLayout(self)
 
-        # -----------------------------
-        # LEFT PANEL: Sprite Selection, Viewer, Data
-        # -----------------------------
-        left_panel = QtW.QVBoxLayout()
+    # --------------------------------------------------
+    # UI Setup
+    # --------------------------------------------------
+    def ui_init(self):
+        main_layout = QtW.QVBoxLayout(self)
+        main_layout.addLayout(self.ui_build_file_toolbar())
+
+        sprite_panel = self.ui_build_sprite_panel()
+        editing_panel = self.ui_build_editing_panel()
+
+        self.content_splitter = create_splitter(
+            (sprite_panel, editing_panel),
+            orientation=Qt.Orientation.Horizontal,
+            stretch_factors=(2, 1), sizes=(664, 336))
+        main_layout.addWidget(self.content_splitter, stretch=1)
+
+    def ui_build_file_toolbar(self):
+        file_toolbar = QtW.QHBoxLayout()
+        file_toolbar.setSpacing(4)
+        file_toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Sprite Build Dropdown
-        self.spr_select_group = QtW.QGroupBox("Select Sprite")
-        spr_select_layout = QtW.QHBoxLayout(self.spr_select_group)
-
-        self.spr_dropdown = QtW.QComboBox()
-        self.spr_dropdown.setToolTip("Select a sprite build from the active project")
-        self.spr_dropdown.currentIndexChanged.connect(self.on_sprite_build_changed)
-        spr_select_layout.addWidget(self.spr_dropdown, stretch=1)
+        self.spr_dropdown = create_combobox(
+            tooltip="Select a sprite build from the active project",
+            on_index_changed=self.on_sprite_build_changed, layout=file_toolbar)
 
         # File Buttons
-        btn_layout = QtW.QHBoxLayout()
-        btn_layout.setSpacing(4)
+        create_pushbutton("New", tooltip="Create a new sprite build",
+            on_clicked=self.file_sprite_new, layout=file_toolbar)
+        create_pushbutton("Load", tooltip="Load an existing sprite build",
+            on_clicked=self.file_sprite_load, layout=file_toolbar)
+        create_pushbutton("Save", tooltip="Save the current sprite build",
+            on_clicked=self.file_sprite_save, layout=file_toolbar)
+        create_pushbutton("Remove", tooltip="Remove the current sprite build from the project",
+            on_clicked=self.file_sprite_remove, layout=file_toolbar)
+        create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
+            on_clicked=self.file_sprite_clear, layout=file_toolbar)
 
-        btn_new = QtW.QPushButton("New")
-        btn_load = QtW.QPushButton("Load")
-        btn_save = QtW.QPushButton("Save")
-        btn_remove = QtW.QPushButton("Remove")
-        btn_clear = QtW.QPushButton("Clear Data")
-        for btn in (btn_new, btn_load, btn_save, btn_remove):
-            btn.setFixedWidth(55)
-        btn_clear.setFixedWidth(65)
+        file_toolbar.addStretch()
+        return file_toolbar
 
-        btn_new.clicked.connect(self.file_sprite_new)
-        btn_load.clicked.connect(self.file_sprite_load)
-        btn_save.clicked.connect(self.file_sprite_save)
-        btn_remove.clicked.connect(self.file_sprite_remove)
-        btn_clear.clicked.connect(self.file_sprite_clear)
+    def ui_build_sprite_panel(self):
+        sprite_panel = QtW.QWidget()
+        sprite_layout = QtW.QVBoxLayout(sprite_panel)
+        sprite_layout.setContentsMargins(0, 0, 0, 0)
 
-        btn_layout.addWidget(btn_new)
-        btn_layout.addWidget(btn_load)
-        btn_layout.addWidget(btn_save)
-        btn_layout.addWidget(btn_remove)
-        btn_layout.addWidget(btn_clear)
+        sprite_layout.addWidget(self.ui_build_sprite_viewer(), stretch=2)
+        sprite_layout.addWidget(self.ui_build_file_manager(), stretch=1)
+        return sprite_panel
 
-        spr_select_layout.addLayout(btn_layout)
-        left_panel.addWidget(self.spr_select_group)
-
+    def ui_build_sprite_viewer(self):
         # Sprite Viewer
         sprite_box = QtW.QGroupBox("Sprite Viewer")
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
@@ -103,182 +119,156 @@ class SpriteEditor(QtW.QWidget):
         # Selection controls
         frame_controls = QtW.QHBoxLayout()
 
-        # VRAM Address Selector controls
+        # VRAM Address Selector controls (To-Do: New function for Spinbox)
         frame_controls.addWidget(QtW.QLabel("VRAM Address:"))
-        self.vram_spinbox = QtW.QSpinBox()
-        self.vram_spinbox.setRange(0, 2047)  # Cap at 2048 tiles
-        self.vram_spinbox.valueChanged.connect(self.render_sprite_frame)
-        self.vram_spinbox.setDisplayIntegerBase(16)  # Display in hex
-        self.vram_spinbox.setPrefix("$")
-        self.vram_spinbox.setToolTip("Starting VRAM Tile Index (Hex)")
-        self.vram_spinbox.setFixedWidth(70)
-        frame_controls.addWidget(self.vram_spinbox)
+        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
+            display_base=16, prefix="$", width=70, tooltip="Starting VRAM Tile Index (Hex)",
+            on_value_changed=self.render_sprite_frame, layout=frame_controls)
 
         # Frame Selector controls
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
-        self.frame_spinbox = QtW.QSpinBox()
-        self.frame_spinbox.setRange(0, 0)
-        self.frame_spinbox.valueChanged.connect(self.render_sprite_frame)
-        frame_controls.addWidget(self.frame_spinbox)
+        self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
+            on_value_changed=self.render_sprite_frame, layout=frame_controls)
+
         frame_controls.addStretch()
         sprite_viewer.addLayout(frame_controls)
 
-        # Scroll area in case built sprite extends past the window border
-        scroll_area = QtW.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        #scroll_area.setStyleSheet("background-color: #282828;") <- Might want to change color manually later
-
+        # Scrollable Sprite Viewer
         self.sprite_label = QtW.QLabel()
         self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        scroll_area.setWidget(self.sprite_label)
-        sprite_viewer.addWidget(scroll_area)
+        scroll_area = create_scrollarea(
+            self.sprite_label, layout=sprite_viewer)
+        scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        left_panel.addWidget(sprite_box, stretch=2)
+        return sprite_box
 
+    def ui_build_file_manager(self):
         # Sprite File Manager
-        self.spr_file_group = QtW.QGroupBox("Sprite Data and Files")
+        self.spr_file_group = QtW.QGroupBox()
         spr_file_layout = QtW.QVBoxLayout(self.spr_file_group)
 
-        # File-related elements here
-        data_tabs = QtW.QTabWidget()
+        file_header_layout = QtW.QHBoxLayout()
 
-        # *** ART TILE SUB-TAB ***
+        self.btn_toggle_filemanager = create_toolbutton("Sprite Data and Files",
+            arrow_type=Qt.ArrowType.DownArrow,
+            tool_button_style=Qt.ToolButtonStyle.ToolButtonTextBesideIcon,
+            checkable=True, checked=True,
+            tooltip="Expand or collapse the file manager",
+            on_toggled=self.filemanager_toggle, layout=file_header_layout)
+
+        file_header_layout.addStretch()
+        spr_file_layout.addLayout(file_header_layout)
+
+        # File-related elements here
+        self.filemanager_tabs = QtW.QTabWidget()
+        self.filemanager_tabs.addTab(self.ui_build_art_tab(), "Art")
+        self.filemanager_tabs.addTab(self.ui_build_mappings_tab(), "Mappings")
+        self.filemanager_tabs.addTab(self.ui_build_palettes_tab(), "Palettes")
+        spr_file_layout.addWidget(self.filemanager_tabs)
+
+        return self.spr_file_group
+
+    def ui_build_art_tab(self):
         art_tab = QtW.QWidget()
         art_layout = QtW.QHBoxLayout(art_tab)
 
-        # Buttons (Built off the Palettes Tab
+        # File buttons
         art_btn_layout = QtW.QVBoxLayout()
         art_btn_layout.setSpacing(12)
         art_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.btn_art_add = QtW.QPushButton("Add")
-        self.btn_art_load = QtW.QPushButton("Load")
-        self.btn_art_save = QtW.QPushButton("Save")
-
-        for btn in (self.btn_art_add, self.btn_art_load, self.btn_art_save):
-            btn.setFixedWidth(60)
-            art_btn_layout.addWidget(btn)
+        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
+            width=60, on_clicked=self.file_art_new, layout=art_btn_layout)
+        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
+            width=60, on_clicked=self.file_art_load, enabled=False, layout=art_btn_layout)
+        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
+            width=60, on_clicked=self.file_art_save, enabled=False, layout=art_btn_layout)
 
         # Load/Save are disabled by default until palettes are added
         self.btn_art_load.setEnabled(False)
         self.btn_art_save.setEnabled(False)
 
-        self.btn_art_add.clicked.connect(self.file_art_new)
-        self.btn_art_load.clicked.connect(self.file_art_load)
-        self.btn_art_save.clicked.connect(self.file_art_save)
-
         art_layout.addLayout(art_btn_layout)
 
-        # Dynamic entry container
-        art_entries_scroll = QtW.QScrollArea()
-        art_entries_scroll.setWidgetResizable(True)
-
+        # Art entry container
         self.art_entries_widget = QtW.QWidget()
         self.art_entries_layout = QtW.QVBoxLayout(self.art_entries_widget)
         self.art_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        art_entries_scroll.setWidget(self.art_entries_widget)
+        art_entries_scroll = create_scrollarea(self.art_entries_widget)
         art_layout.addWidget(art_entries_scroll, stretch=1)
 
-        data_tabs.addTab(art_tab, "Art")
-        # ************************
+        return art_tab
 
-        # *** MAPPINGS SUB-TAB ***
+    def ui_build_mappings_tab(self):
         mappings_tab = QtW.QWidget()
         mappings_layout = QtW.QHBoxLayout(mappings_tab)
 
-        # Buttons (I'm going to try to model this after Flex 2)
+        # File buttons
         map_btn_layout = QtW.QVBoxLayout()
         map_btn_layout.setSpacing(12)
         map_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.btn_map_add = QtW.QPushButton("Add")
-        self.btn_map_load = QtW.QPushButton("Load")
-        self.btn_map_save = QtW.QPushButton("Save")
-
-        for btn in (self.btn_map_add, self.btn_map_load, self.btn_map_save):
-            btn.setFixedWidth(60)
-            map_btn_layout.addWidget(btn)
-
-        # Load/Save are disabled by default until mappings are added
-        self.btn_map_load.setEnabled(False)
-        self.btn_map_save.setEnabled(False)
-
-        self.btn_map_add.clicked.connect(self.file_mapping_new)
-        self.btn_map_load.clicked.connect(self.file_mapping_load)
-        self.btn_map_save.clicked.connect(self.file_mapping_save)
+        self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
+            width=60, on_clicked=self.file_mapping_new, layout=map_btn_layout)
+        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
+            width=60, on_clicked=self.file_mapping_load, enabled=False, layout=map_btn_layout)
+        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
+            width=60, on_clicked=self.file_mapping_save, enabled=False, layout=map_btn_layout)
 
         mappings_layout.addLayout(map_btn_layout)
 
         # Mapping/DPLC entry container (No vertical scrollbar)
-        map_entries_scroll = QtW.QScrollArea()
-        map_entries_scroll.setWidgetResizable(True)
-        map_entries_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
         self.map_entries_widget = QtW.QWidget()
         self.map_entries_layout = QtW.QVBoxLayout(self.map_entries_widget)
         self.map_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        map_entries_scroll.setWidget(self.map_entries_widget)
+        map_entries_scroll = create_scrollarea(
+            self.map_entries_widget,
+            vertical_policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         mappings_layout.addWidget(map_entries_scroll, stretch=1)
 
-        data_tabs.addTab(mappings_tab, "Mappings")
-        # ************************
+        return mappings_tab
 
-        # *** PALETTES SUB-TAB ***
+    def ui_build_palettes_tab(self):
         palettes_tab = QtW.QWidget()
         palettes_layout = QtW.QHBoxLayout(palettes_tab)
 
-        # Buttons (I'm going to try to model this after Flex 2)
+        # File buttons
         pal_btn_layout = QtW.QVBoxLayout()
         pal_btn_layout.setSpacing(12)
         pal_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.btn_pal_add = QtW.QPushButton("Add")
-        self.btn_pal_load = QtW.QPushButton("Load")
-        self.btn_pal_save = QtW.QPushButton("Save")
-
-        for btn in (self.btn_pal_add, self.btn_pal_load, self.btn_pal_save):
-            btn.setFixedWidth(60)
-            pal_btn_layout.addWidget(btn)
-
-        # Load/Save are disabled by default until palettes are added
-        self.btn_pal_load.setEnabled(False)
-        self.btn_pal_save.setEnabled(False)
-
-        self.btn_pal_add.clicked.connect(self.file_palette_new)
-        self.btn_pal_load.clicked.connect(self.file_palette_load)
-        self.btn_pal_save.clicked.connect(self.file_palette_save)
+        self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
+            width=60, on_clicked=self.file_palette_new, layout=pal_btn_layout)
+        self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes",
+            width=60, on_clicked=self.file_palette_load, enabled=False, layout=pal_btn_layout)
+        self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data",
+            width=60, on_clicked=self.file_palette_save, enabled=False, layout=pal_btn_layout)
 
         palettes_layout.addLayout(pal_btn_layout)
 
-        # Dynamic entry container
-        pal_entries_scroll = QtW.QScrollArea()
-        pal_entries_scroll.setWidgetResizable(True)
-
+        # Palette entry container
         self.pal_entries_widget = QtW.QWidget()
         self.pal_entries_layout = QtW.QVBoxLayout(self.pal_entries_widget)
         self.pal_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        pal_entries_scroll.setWidget(self.pal_entries_widget)
+        pal_entries_scroll = create_scrollarea(self.pal_entries_widget)
         palettes_layout.addWidget(pal_entries_scroll, stretch=1)
 
-        data_tabs.addTab(palettes_tab, "Palettes")
-        # ************************
+        return palettes_tab
 
-        spr_file_layout.addWidget(data_tabs)
-        left_panel.addWidget(self.spr_file_group, stretch=1)
+    def ui_build_editing_panel(self):
+        editing_panel = QtW.QWidget()
+        editing_layout = QtW.QVBoxLayout(editing_panel)
+        editing_layout.setContentsMargins(0, 0, 0, 0)
 
-        main_layout.addLayout(left_panel, stretch=2)
+        editing_layout.addWidget(self.ui_build_palette_preview())
+        editing_layout.addWidget(self.ui_build_art_viewer(), stretch=2)
+        return editing_panel
 
-        # -----------------------------
-        # RIGHT PANEL: Editing Controls
-        # -----------------------------
-        right_panel = QtW.QVBoxLayout()
-
-        # Sprite Palette
+    def ui_build_palette_preview(self):
         spr_palette_group = QtW.QGroupBox("Palette")
         spr_palette_layout = QtW.QVBoxLayout(spr_palette_group)
 
@@ -296,45 +286,40 @@ class SpriteEditor(QtW.QWidget):
             pal_grid_layout.addWidget(box, row, col)
             self.palette_boxes.append(box)
 
-        spr_palette_layout.addWidget(
-            pal_grid_container,
-            alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
-        )
+        spr_palette_layout.addWidget(pal_grid_container,
+            alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         spr_palette_layout.addStretch()
 
-        right_panel.addWidget(spr_palette_group)
+        return spr_palette_group
 
-        # Art Viewer (Moved from left panel)
+    def ui_build_art_viewer(self):
         self.vram_box = QtW.QGroupBox("Art Tile Viewer")
         art_viewer_layout = QtW.QVBoxLayout(self.vram_box)
 
         # Active Palette Line Selector for the Viewer
         viewer_controls = QtW.QHBoxLayout()
         viewer_controls.addWidget(QtW.QLabel("Preview Palette Line:"))
-        self.viewer_line_combo = QtW.QComboBox()
-        self.viewer_line_combo.addItems(["Line 0", "Line 1", "Line 2", "Line 3"])
-        self.viewer_line_combo.currentIndexChanged.connect(self.update_tile_viewer)
 
-        viewer_controls.addWidget(self.viewer_line_combo)
+        items = ["Line 0", "Line 1", "Line 2", "Line 3"]
+        self.viewer_line_combo = create_combobox(
+            tooltip="Choose a palette line to view art tiles with",
+            on_index_changed=self.update_tile_viewer, items=items, layout=viewer_controls)
         viewer_controls.addStretch()
         art_viewer_layout.addLayout(viewer_controls)
 
         # Scrollable Canvas
-        self.vram_scroll = QtW.QScrollArea()
-        self.vram_scroll.setWidgetResizable(True)
-        self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # vram_scroll.setStyleSheet("background-color: #282828;") <- Might want to change color manually later
-
         self.vram_label = QtW.QLabel()
-        self.vram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.vram_scroll.setWidget(self.vram_label)
+        self.vram_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        art_viewer_layout.addWidget(self.vram_scroll)
-        right_panel.addWidget(self.vram_box, stretch=2)
+        self.vram_scroll = create_scrollarea(self.vram_label, layout=art_viewer_layout)
+        self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        main_layout.addLayout(right_panel, stretch=1)
+        return self.vram_box
 
-    # File Manager
+
+    # --------------------------------------------------
+    # File Operations
+    # --------------------------------------------------
     def file_sprite_new(self):
         # Get top-level window to access project file
         main_win = self.window()
@@ -430,8 +415,8 @@ class SpriteEditor(QtW.QWidget):
         if self.map_widget:
             self.file_mapping_load()
 
-    # Saves all loaded sprite assets and saves build to the project
     def file_sprite_save(self):
+        """Saves all loaded sprite assets and saves build to the project"""
         # Get top-level window to access project file
         main_win = self.window()
 
@@ -1604,3 +1589,23 @@ class SpriteEditor(QtW.QWidget):
         )
 
         self.sprite_label.setPixmap(scaled_pixmap)
+
+    def filemanager_toggle(self, expanded):
+        # Collapse handler
+        if expanded:
+            # Allow the file manager panel to grow again
+            self.spr_file_group.setMinimumHeight(0)
+            self.spr_file_group.setMaximumHeight(16777215)
+            self.filemanager_tabs.show()
+            self.spr_file_group.layout().activate()
+
+            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.DownArrow)
+            self.spr_file_group.layout().activate()
+
+        else:
+            self.filemanager_tabs.hide()
+            self.btn_toggle_filemanager.setArrowType(Qt.ArrowType.RightArrow)
+
+            # Shrink the panel to its header
+            self.spr_file_group.layout().activate()
+            self.spr_file_group.setFixedHeight(self.spr_file_group.sizeHint().height())
