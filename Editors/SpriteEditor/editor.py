@@ -70,7 +70,12 @@ class SpriteEditor(QtW.QWidget):
         self.piece_drag = None      # Remember where the mouse and piece were when dragging began
         self.selection_drag = None
 
+        # State of mapping piece editor
+        self.piece_controls_state = None
+
         self.ui_init()
+
+        self.sprite_refresh_piece_controls()
 
 
     # --------------------------------------------------
@@ -394,46 +399,42 @@ class SpriteEditor(QtW.QWidget):
         piece_layout = QtW.QVBoxLayout(self.piece_controls_box)
         fields = QtW.QFormLayout()
 
-        # Position in pixels, relative to the sprite origin.
+        # Position in pixels, relative to the sprite origin
         self.piece_x_spinbox = create_spinbox(
             minimum=-128, maximum=127,
             width=45, keyboard_tracking=False,
-            tooltip="Horizontal position relative to the sprite origin"
-        )
+            tooltip="Horizontal position relative to the sprite origin")
+
         self.piece_y_spinbox = create_spinbox(
             minimum=-128, maximum=127,
             width=45, keyboard_tracking=False,
-            tooltip="Vertical position relative to the sprite origin"
-        )
+            tooltip="Vertical position relative to the sprite origin")
 
-        # Tile index stored in this piece's mapping.
+        # Tile index stored in this piece's mapping
         self.piece_tile_spinbox = create_spinbox(
             minimum=0, maximum=2047,
             display_base=16, prefix="$",
             width=55, keyboard_tracking=False,
-            tooltip="Tile index before adding the sprite's base VRAM index"
-        )
+            tooltip="Tile index before adding the sprite's base VRAM index")
 
-        # Dimensions are measured in tiles.
+        # Dimensions of this piece, in tiles
         self.piece_width_spinbox = create_spinbox(
             minimum=1, maximum=4, value=1,
             width=40, keyboard_tracking=False,
-            tooltip="Piece Width (tiles)"
-        )
+            tooltip="Piece Width (tiles)")
+
         self.piece_height_spinbox = create_spinbox(
             minimum=1, maximum=4, value=1,
             width=40, keyboard_tracking=False,
-            tooltip="Piece Height (tiles)"
-        )
+            tooltip="Piece Height (tiles)")
 
-        # Palette value stored in this piece's mapping.
+        # Palette value stored in this piece's mapping
         self.piece_palette_spinbox = create_spinbox(
             minimum=0, maximum=3,
             width=40, keyboard_tracking=False,
-            tooltip="Palette line before adding the sprite's base palette line"
-        )
+            tooltip="Palette line before adding the sprite's base palette line")
 
-        # Boolean properties use checkboxes.
+        # Boolean properties
         self.piece_x_flip_checkbox = QtW.QCheckBox("X-Flip")
         self.piece_y_flip_checkbox = QtW.QCheckBox("Y-Flip")
         self.piece_priority_checkbox = QtW.QCheckBox("Priority")
@@ -468,10 +469,38 @@ class SpriteEditor(QtW.QWidget):
         attributes_row.addWidget(self.piece_priority_checkbox)
         attributes_row.addStretch()
 
-        # Stack the rows.
+        # Stack the rows
         piece_layout.addLayout(position_row)
         piece_layout.addLayout(tile_row)
         piece_layout.addLayout(attributes_row)
+
+        # Group widgets by type
+        self.piece_spinboxes = {
+            "x": self.piece_x_spinbox,
+            "y": self.piece_y_spinbox,
+            "tile": self.piece_tile_spinbox,
+            "width": self.piece_width_spinbox,
+            "height": self.piece_height_spinbox,
+            "palette": self.piece_palette_spinbox,
+        }
+
+        self.piece_checkboxes = {
+            "priority": self.piece_priority_checkbox,
+            "x_flip": self.piece_x_flip_checkbox,
+            "y_flip": self.piece_y_flip_checkbox,
+        }
+
+        for field, spinbox in self.piece_spinboxes.items():
+            spinbox.valueChanged.connect(
+                lambda value, field=field:
+                    self.sprite_edit_piece_property(field, value)
+            )
+
+        for field, checkbox in self.piece_checkboxes.items():
+            checkbox.clicked.connect(
+                lambda checked, field=field:
+                    self.sprite_edit_piece_property(field, checked)
+            )
 
         return self.piece_controls_box
 
@@ -1060,6 +1089,7 @@ class SpriteEditor(QtW.QWidget):
         self.piece_drag = None
         self.hovered_piece = None
         self.sprite_end_box_select()
+        self.sprite_refresh_piece_controls()
 
     def on_sprite_frame_changed(self):
         self.sprite_clear_selection()
@@ -1181,6 +1211,153 @@ class SpriteEditor(QtW.QWidget):
                 piece["x"] = new_x
                 piece["y"] = new_y
                 changed = True
+
+        if changed:
+            self.render_sprite_frame()
+
+    def sprite_get_selected_pieces(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not 0 <= frame_index < len(self.map_frames):
+            return []
+
+        pieces = self.map_frames[frame_index]
+
+        return [
+            (index, pieces[index])
+            for index in sorted(self.selected_pieces)
+            if 0 <= index < len(pieces)
+        ]
+
+    def sprite_refresh_piece_controls(self):
+        # Some UI construction callbacks may run before these exist
+        if not hasattr(self, "piece_spinboxes"):
+            return
+
+        selected = self.sprite_get_selected_pieces()
+
+        # Include selection identity and property values
+        state = (
+            self.frame_spinbox.value(),
+            tuple(
+                (
+                    index,
+                    tuple(
+                        piece[field]
+                        for field in self.piece_spinboxes
+                    ),
+                    tuple(
+                        bool(piece.get(field, False))
+                        for field in self.piece_checkboxes
+                    ),
+                )
+                for index, piece in selected
+            ),
+        )
+
+        if state == self.piece_controls_state:
+            return
+
+        self.piece_controls_state = state
+        self.piece_controls_box.setEnabled(bool(selected))
+
+        if selected:
+            index, reference_piece = selected[0]
+
+            title = f"Piece {index}"
+            if len(selected) > 1:
+                title += f" — {len(selected)} selected"
+
+            self.piece_controls_box.setTitle(title)
+        else:
+            reference_piece = None
+            self.piece_controls_box.setTitle("Piece Properties")
+
+        # Updating the UI must not write values back into the data
+        for field, spinbox in self.piece_spinboxes.items():
+            was_blocked = spinbox.blockSignals(True)
+
+            try:
+                if reference_piece is None:
+                    spinbox.setValue(spinbox.minimum())
+                    spinbox.clear()
+                else:
+                    spinbox.setValue(reference_piece[field])
+            finally:
+                spinbox.blockSignals(was_blocked)
+
+        for field, checkbox in self.piece_checkboxes.items():
+            values = {
+                bool(piece.get(field, False))
+                for _, piece in selected
+            }
+            mixed = len(values) > 1
+
+            was_blocked = checkbox.blockSignals(True)
+
+            try:
+                checkbox.setTristate(mixed)
+
+                if mixed:
+                    checkbox.setCheckState(
+                        Qt.CheckState.PartiallyChecked
+                    )
+                else:
+                    checkbox.setChecked(True in values)
+            finally:
+                checkbox.blockSignals(was_blocked)
+
+    def sprite_edit_piece_property(self, field, value):
+        if field not in self.piece_spinboxes and field not in self.piece_checkboxes:
+            return
+
+        selected = self.sprite_get_selected_pieces()
+        if not selected:
+            return
+
+        changed = False
+
+        if field in ("x", "y"):
+            # Position edits move the group by the same distance
+            reference_piece = selected[0][1]
+            delta = int(value) - reference_piece[field]
+
+            spinbox = self.piece_spinboxes[field]
+
+            min_delta = max(
+                spinbox.minimum() - piece[field]
+                for _, piece in selected
+            )
+            max_delta = min(
+                spinbox.maximum() - piece[field]
+                for _, piece in selected
+            )
+
+            # Keep the entire group within the editing limits
+            if min_delta <= max_delta:
+                delta = max(min_delta, min(max_delta, delta))
+            else:
+                delta = 0
+
+            if delta:
+                for _, piece in selected:
+                    piece[field] += delta
+                changed = True
+
+        else:
+            if field in self.piece_checkboxes:
+                value = bool(value)
+            else:
+                value = int(value)
+
+            for _, piece in selected:
+                if piece.get(field) != value:
+                    piece[field] = value
+                    changed = True
+
+        # Force a refresh even if movement was limited or rejected
+        self._piece_controls_state = None
+        self.sprite_refresh_piece_controls()
 
         if changed:
             self.render_sprite_frame()
@@ -2018,6 +2195,9 @@ class SpriteEditor(QtW.QWidget):
         self.vram_label.setPixmap(scaled_pixmap)
 
     def render_sprite_frame(self):
+        # Refresh edit controls whenever selection or data changes
+        self.sprite_refresh_piece_controls()
+
         # 256x256 canvas with the center representing the sprite's X/Y origin pivot
         canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
         center_x, center_y = canvas_w // 2, canvas_h // 2
