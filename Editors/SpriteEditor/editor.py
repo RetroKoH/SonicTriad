@@ -131,15 +131,15 @@ class SpriteEditor(QtW.QWidget):
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
 
         # Selection controls
-        frame_controls = QtW.QHBoxLayout()
+        #frame_controls = QtW.QHBoxLayout()
 
-        # Frame Selector
-        frame_controls.addWidget(QtW.QLabel("Frame Index:"))
-        self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
-            on_value_changed=self.on_sprite_frame_changed, layout=frame_controls)
+        # Frame Selector (Will put something else here)
+        #frame_controls.addWidget(QtW.QLabel("Frame Index:"))
+        #self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
+        #    on_value_changed=self.on_sprite_frame_changed, layout=frame_controls)
 
-        frame_controls.addStretch()
-        sprite_viewer.addLayout(frame_controls)
+        #frame_controls.addStretch()
+        #sprite_viewer.addLayout(frame_controls)
 
         # Scrollable Sprite Viewer
         self.sprite_label = QtW.QLabel()
@@ -316,8 +316,7 @@ class SpriteEditor(QtW.QWidget):
         self.editing_tabs.addTab(self.ui_build_art_viewer(), "Art")
 
         # Mappings: empty space for future editing controls
-        self.mappings_tab = QtW.QWidget()
-        self.editing_tabs.addTab(self.mappings_tab, "Mappings")
+        self.editing_tabs.addTab(self.ui_build_map_editor(), "Mappings")
 
         editing_layout.addWidget(self.editing_tabs, stretch=2)
         return editing_panel
@@ -370,6 +369,111 @@ class SpriteEditor(QtW.QWidget):
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         return self.vram_box
+
+    def ui_build_map_editor(self):
+        self.map_edit_box = QtW.QGroupBox()
+        map_editor = QtW.QVBoxLayout(self.map_edit_box)
+
+        frame_controls = QtW.QHBoxLayout()
+
+        # Frame Selector (Will put something else here)
+        frame_controls.addWidget(QtW.QLabel("Frame Index:"))
+        self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
+            on_value_changed=self.on_sprite_frame_changed, layout=frame_controls)
+
+        frame_controls.addStretch()
+        map_editor.addLayout(frame_controls)
+
+        map_editor.addWidget(self.ui_build_piece_controls())
+        map_editor.addStretch()
+
+        return self.map_edit_box
+
+    def ui_build_piece_controls(self):
+        self.piece_controls_box = QtW.QGroupBox("Piece Properties")
+        piece_layout = QtW.QVBoxLayout(self.piece_controls_box)
+        fields = QtW.QFormLayout()
+
+        # Position in pixels, relative to the sprite origin.
+        self.piece_x_spinbox = create_spinbox(
+            minimum=-128, maximum=127,
+            width=45, keyboard_tracking=False,
+            tooltip="Horizontal position relative to the sprite origin"
+        )
+        self.piece_y_spinbox = create_spinbox(
+            minimum=-128, maximum=127,
+            width=45, keyboard_tracking=False,
+            tooltip="Vertical position relative to the sprite origin"
+        )
+
+        # Tile index stored in this piece's mapping.
+        self.piece_tile_spinbox = create_spinbox(
+            minimum=0, maximum=2047,
+            display_base=16, prefix="$",
+            width=55, keyboard_tracking=False,
+            tooltip="Tile index before adding the sprite's base VRAM index"
+        )
+
+        # Dimensions are measured in tiles.
+        self.piece_width_spinbox = create_spinbox(
+            minimum=1, maximum=4, value=1,
+            width=40, keyboard_tracking=False,
+            tooltip="Piece Width (tiles)"
+        )
+        self.piece_height_spinbox = create_spinbox(
+            minimum=1, maximum=4, value=1,
+            width=40, keyboard_tracking=False,
+            tooltip="Piece Height (tiles)"
+        )
+
+        # Palette value stored in this piece's mapping.
+        self.piece_palette_spinbox = create_spinbox(
+            minimum=0, maximum=3,
+            width=40, keyboard_tracking=False,
+            tooltip="Palette line before adding the sprite's base palette line"
+        )
+
+        # Boolean properties use checkboxes.
+        self.piece_x_flip_checkbox = QtW.QCheckBox("X-Flip")
+        self.piece_y_flip_checkbox = QtW.QCheckBox("Y-Flip")
+        self.piece_priority_checkbox = QtW.QCheckBox("Priority")
+
+        # Row 1: Position
+        position_row = QtW.QHBoxLayout()
+        position_row.addWidget(QtW.QLabel("X:"))
+        position_row.addWidget(self.piece_x_spinbox)
+        position_row.addWidget(self.piece_x_flip_checkbox)
+        position_row.addStretch()
+        position_row.addWidget(QtW.QLabel("Y:"))
+        position_row.addWidget(self.piece_y_spinbox)
+        position_row.addWidget(self.piece_y_flip_checkbox)
+        position_row.addStretch()
+
+        # Row 2: Tile and dimensions
+        tile_row = QtW.QHBoxLayout()
+        tile_row.addWidget(QtW.QLabel("Tile:"))
+        tile_row.addWidget(self.piece_tile_spinbox)
+        tile_row.addStretch()
+        tile_row.addWidget(QtW.QLabel("Width:"))
+        tile_row.addWidget(self.piece_width_spinbox)
+        tile_row.addWidget(QtW.QLabel("Height:"))
+        tile_row.addWidget(self.piece_height_spinbox)
+        tile_row.addStretch()
+
+        # Row 3: Palette and priority
+        attributes_row = QtW.QHBoxLayout()
+        attributes_row.addWidget(QtW.QLabel("Palette Line:"))
+        attributes_row.addWidget(self.piece_palette_spinbox)
+        attributes_row.addStretch()
+        attributes_row.addWidget(self.piece_priority_checkbox)
+        attributes_row.addStretch()
+
+        # Stack the rows.
+        piece_layout.addLayout(position_row)
+        piece_layout.addLayout(tile_row)
+        piece_layout.addLayout(attributes_row)
+
+        return self.piece_controls_box
 
 
     # --------------------------------------------------
