@@ -39,10 +39,9 @@ class SpriteEditor(QtW.QWidget):
         self.vram_tiles = {}
 
         # Used in the art file manager
-        self.art_rows = []  # Stores (path_input, offset_spin, comp_combo) for art loading
+        self.art_rows = []  # Stores row items in the table for art loading
 
         # Widget group used in the map file manager
-        self.map_widget = None
         self.map_path_input = None
         self.map_dropdown = None
         self.map_name_input = None
@@ -217,81 +216,157 @@ class SpriteEditor(QtW.QWidget):
         return self.spr_file_group
 
     def ui_build_art_tab(self):
-        art_tab = QtW.QWidget()
-        art_layout = QtW.QVBoxLayout(art_tab)
+        tab = QtW.QWidget()
+        layout = QtW.QVBoxLayout(tab)
 
-        # File buttons
-        art_toolbar = QtW.QHBoxLayout()
-        art_toolbar.setSpacing(4)
-        art_toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # File toolbar
+        toolbar = QtW.QHBoxLayout()
+        toolbar.setSpacing(4)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # Load/Save are disabled by default until palettes are added
         self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
-            width=50, on_clicked=self.art_entry_new, layout=art_toolbar)
+            width=50, on_clicked=self.art_entry_new, layout=toolbar)
         self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
-            width=50, on_clicked=self.art_entry_load, enabled=False, layout=art_toolbar)
+            width=50, on_clicked=self.art_entry_load, enabled=False, layout=toolbar)
         self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
-            width=50, on_clicked=self.art_entry_save, enabled=False, layout=art_toolbar)
+            width=50, on_clicked=self.art_entry_save, enabled=False, layout=toolbar)
         self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove art tile entry",
-            width=50, on_clicked=lambda: self.art_remove_entry(), enabled=False, layout=art_toolbar)
+            width=50, on_clicked=lambda: self.art_remove_entry(), enabled=False, layout=toolbar)
 
-        art_layout.addLayout(art_toolbar)
+        layout.addLayout(toolbar)
 
         # Table: initially zero rows, four columns
         self.art_file_table = QtW.QTableWidget(0, 4)
-        self.art_file_table.setHorizontalHeaderLabels(
-            ["File", "Compression", "VRAM location", "Tile count"]
-        )
+        table = self.art_file_table
 
-        self.art_file_table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.art_file_table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
-        self.art_file_table.setSortingEnabled(False)
+        table.setHorizontalHeaderLabels(["File", "Compression", "VRAM location", "Tile count"])
+        table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(30)
 
-        # Let the filename column take the remaining space.
-        header = self.art_file_table.horizontalHeader()
+        table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
+        table.setSortingEnabled(False)
+
+        # Let the filename column take the remaining space
+        header = table.horizontalHeader()
         header.setSectionResizeMode(0, QtW.QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(1, 120)
+        table.setColumnWidth(2, 110)
+        table.setColumnWidth(3, 90)
 
-        self.art_file_table.setColumnWidth(1, 120)
-        self.art_file_table.setColumnWidth(2, 110)
-        self.art_file_table.setColumnWidth(3, 90)
+        table.itemSelectionChanged.connect(self.art_update_file_controls)
 
-        self.art_file_table.verticalHeader().setDefaultSectionSize(30)
+        layout.addWidget(table, stretch=1)
 
-        #self.art_file_table.itemSelectionChanged.connect(self.art_update_file_controls)
-
-        art_layout.addWidget(self.art_file_table, stretch=1)
-
-        return art_tab
+        return tab
 
     def ui_build_mappings_tab(self):
-        mappings_tab = QtW.QWidget()
-        mappings_layout = QtW.QHBoxLayout(mappings_tab)
+        tab = QtW.QWidget()
+        layout = QtW.QVBoxLayout(tab)
 
-        # File buttons
-        map_btn_layout = QtW.QVBoxLayout()
-        map_btn_layout.setSpacing(12)
-        map_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # File toolbar
+        toolbar = QtW.QHBoxLayout()
+        toolbar.setSpacing(4)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
-            width=60, on_clicked=self.mapping_entry_new, layout=map_btn_layout)
+            width=50, on_clicked=self.mapping_entry_new, layout=toolbar)
         self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
-            width=60, on_clicked=self.mapping_entry_load, enabled=False, layout=map_btn_layout)
+            width=50, on_clicked=self.mapping_entry_load, enabled=False, layout=toolbar)
         self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
-            width=60, on_clicked=self.mapping_entry_save, enabled=False, layout=map_btn_layout)
+            width=50, on_clicked=self.mapping_entry_save, enabled=False, layout=toolbar)
+        self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data",
+            width=50, on_clicked=lambda: self.mapping_remove_entry(), enabled=False, layout=toolbar)
 
-        mappings_layout.addLayout(map_btn_layout)
+        toolbar.addStretch()
 
-        # Mapping/DPLC entry container (No vertical scrollbar)
-        self.map_entries_widget = QtW.QWidget()
-        self.map_entries_layout = QtW.QVBoxLayout(self.map_entries_widget)
-        self.map_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Options above the table
+        toolbar.addWidget(QtW.QLabel("Format:"))
 
-        map_entries_scroll = create_scrollarea(
-            self.map_entries_widget,
-            vertical_policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        mappings_layout.addWidget(map_entries_scroll, stretch=1)
+        # To-Do: Need to add custom format support later
+        self.map_dropdown = QtW.QComboBox()
+        self.map_dropdown.addItems(["Sonic 1", "Sonic 2", "Sonic 3K"])
+        toolbar.addWidget(self.map_dropdown)
 
-        return mappings_tab
+        self.macro_cb = QtW.QCheckBox("Save with Macros")
+        toolbar.addWidget(self.macro_cb)
+
+        self.dplc_cb = QtW.QCheckBox("Use DPLCs")
+        toolbar.addWidget(self.dplc_cb)
+
+        layout.addLayout(toolbar)
+
+        # Table
+        self.map_file_table = QtW.QTableWidget(2, 3)
+        table = self.map_file_table
+
+        table.setHorizontalHeaderLabels(["Type", "File", "Label Prefix"])
+        table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(30)
+
+        table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
+        table.setSortingEnabled(False)
+
+        # Let the filename column take space as the window resizes
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(1, QtW.QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 90)
+        table.setColumnWidth(2, 110)
+
+        # Fixed, non-editable type labels for column 0
+        for row, name in enumerate(("Mappings", "DPLC")):
+            item = QtW.QTableWidgetItem(name)
+            item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled |
+                Qt.ItemFlag.ItemIsSelectable
+            )
+            table.setItem(row, 0, item)
+
+        # Row 0: Mapping file
+        self.map_path_input = QtW.QLineEdit()
+        self.map_path_input.setPlaceholderText("Mapping Filepath...")
+        table.setCellWidget(0, 1, self.map_path_input)
+
+        self.map_name_input = QtW.QLineEdit()
+        self.map_name_input.setPlaceholderText("Map_")
+        table.setCellWidget(0, 2, self.map_name_input)
+
+        # Row 1: DPLC file
+        self.dplc_path_input = QtW.QLineEdit()
+        self.dplc_path_input.setPlaceholderText("DPLC Filepath...")
+
+        self.dplc_name_input = QtW.QLineEdit()
+        self.dplc_name_input.setPlaceholderText("DPLC_")
+
+        dplc_file_widget = QtW.QWidget()
+        dplc_file_layout = QtW.QHBoxLayout(dplc_file_widget)
+        dplc_file_layout.setContentsMargins(0, 0, 0, 0)
+        dplc_file_layout.setSpacing(2)
+
+        btn_dplc_browse = QtW.QPushButton("...")
+        btn_dplc_browse.setFixedWidth(30)
+        btn_dplc_browse.clicked.connect(lambda: self.mapping_dplc_browse(self.dplc_path_input))
+
+        dplc_file_layout.addWidget(self.dplc_path_input, stretch=1)
+        dplc_file_layout.addWidget(btn_dplc_browse)
+
+        table.setCellWidget(1, 1, dplc_file_widget)
+        table.setCellWidget(1, 2, self.dplc_name_input)
+
+        # Update buttons when the filepath is typed or changed
+        self.map_path_input.textChanged.connect(self.mapping_update_file_controls)
+
+        # Show the DPLC row only when enabled
+        table.setRowHidden(1, True)
+        self.dplc_cb.toggled.connect(lambda enabled: table.setRowHidden(1, not enabled))
+
+        layout.addWidget(table, stretch=1)
+
+        self.mapping_update_file_controls()
+
+        return tab
 
     def ui_build_palettes_tab(self):
         palettes_tab = QtW.QWidget()
@@ -536,7 +611,7 @@ class SpriteEditor(QtW.QWidget):
 
         # We are not actually going to create new files here.
         # Instead, we're just creating a new sprite build definition.
-        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also)
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also).
         if not hasattr(main_win, "active_project_data") or main_win.active_project_data is None:
             QtW.QMessageBox.warning(self, "No Project", "Please load a project file first.")
             return
@@ -623,7 +698,7 @@ class SpriteEditor(QtW.QWidget):
         if self.art_rows:
             self.art_entry_load()
 
-        if self.map_widget:
+        if self.map_path_input.text().strip():
             self.mapping_entry_load()
 
     def file_sprite_save(self):
@@ -655,7 +730,9 @@ class SpriteEditor(QtW.QWidget):
         # Save sprite assets
         self.palette_entry_save()
         self.art_entry_save()
-        self.mapping_entry_save()
+
+        if self.map_path_input.text().strip():
+            self.mapping_entry_save()
 
         # JSON SAVING
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -710,25 +787,21 @@ class SpriteEditor(QtW.QWidget):
         new_mappings = {}
         new_dplcs = {"enabled": False, "path": "", "label": ""}
 
-        if self.map_widget:
-            if self.map_path_input:
-                new_mappings["path"] = make_relative(self.map_path_input.text().strip())
+        map_path = self.map_path_input.text().strip()
 
-            # Access layout widgets to get map/DPLC info
-            line_edits = self.map_widget.findChildren(QtW.QLineEdit)
-            checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+        if map_path:
+            new_mappings = {
+                "path": make_relative(map_path),
+                "label": self.map_name_input.text().strip(),
+            }
 
-            for _l in line_edits:
-                if _l.placeholderText() == "Map_":
-                    new_mappings["label"] = _l.text().strip()
-                elif _l.placeholderText() == "DPLC Filepath...":
-                    new_dplcs["path"] = make_relative(_l.text().strip())
-                elif _l.placeholderText() == "DPLC_":
-                    new_dplcs["label"] = _l.text().strip()
-
-            dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
-            if dplc_cb:
-                new_dplcs["enabled"] = dplc_cb.isChecked()
+            new_dplcs = {
+                "enabled": self.dplc_cb.isChecked(),
+                "path": make_relative(
+                    self.dplc_path_input.text().strip()
+                ),
+                "label": self.dplc_name_input.text().strip(),
+            }
 
         sprite_data["mappings"] = new_mappings
         sprite_data["dplcs"] = new_dplcs
@@ -899,33 +972,21 @@ class SpriteEditor(QtW.QWidget):
         mappings = sprite_data.get("mappings", {})
         dplcs = sprite_data.get("dplcs", {})
 
-        map_path = mappings.get("path", "") if isinstance(mappings, dict) else mappings
-        if map_path or mappings:
-            self.mapping_add_entry(resolve_path_str(map_path))
+        # Support an older configuration containing only a path
+        if not isinstance(mappings, dict):
+            mappings = {"path": mappings}
 
-            # Sync format dropdown based on integer (1=Sonic 1, 2=Sonic 2, 3=Sonic 3K)
-            spr_format = sprite_data.get("format", 1)
-            self.map_dropdown.setCurrentIndex(spr_format - 1)
+        if not isinstance(dplcs, dict):
+            dplcs = {}
 
-            # Access layout widgets with findChildren to fill in information
-            if self.map_widget:
-                line_edits = self.map_widget.findChildren(QtW.QLineEdit)
-                checkboxes = self.map_widget.findChildren(QtW.QCheckBox)
+        self.map_dropdown.setCurrentIndex(sprite_data.get("format", 1) - 1)
 
-                for _l in line_edits:
-                    if _l.placeholderText() == "Map_":
-                        _l.setText(mappings.get("label", "") if isinstance(mappings, dict) else "")
+        self.map_path_input.setText(resolve_path_str(mappings.get("path", "")))
+        self.map_name_input.setText(mappings.get("label", ""))
 
-                # Toggle and populate DPLCs if enabled
-                dplc_cb = next((cb for cb in checkboxes if cb.text() == "Enable DPLCs"), None)
-                if dplc_cb and isinstance(dplcs, dict) and dplcs.get("enabled", False):
-                    dplc_cb.setChecked(True)  # Triggers the widget visibility toggle
-                    for _l in line_edits:
-                        if _l.placeholderText() == "DPLC Filepath...":
-                            _l.setText(resolve_path_str(dplcs.get("path", "")))
-                        elif _l.placeholderText() == "DPLC_":
-                            _l.setText(dplcs.get("label", ""))
-
+        self.dplc_path_input.setText(resolve_path_str(dplcs.get("path", "")))
+        self.dplc_name_input.setText(dplcs.get("label", ""))
+        self.dplc_cb.setChecked(dplcs.get("enabled", False))
 
     # --------------------------------------------------
     # File Manager
@@ -941,9 +1002,8 @@ class SpriteEditor(QtW.QWidget):
         while self.art_rows:
             self.art_remove_entry(0)
 
-        # Clean out Mapping rows
-        if self.map_widget:
-            self.mapping_remove_entry()
+        # Clean out Mapping fields
+        self.mapping_remove_entry()
 
     def filemanager_toggle(self, expanded):
         # Collapse handler
@@ -1760,127 +1820,40 @@ class SpriteEditor(QtW.QWidget):
             )
 
     def mapping_add_entry(self, file_path):
-        # Prevent adding multiple mapping assets
-        if self.map_widget is not None:
+        # Only one mapping file can be configured
+        if self.map_path_input.text().strip():
             return
 
-        self.map_widget = QtW.QWidget()
-        layout = QtW.QVBoxLayout(self.map_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Primary Mapping Row
-        map_row_widget = QtW.QWidget()
-        map_row = QtW.QHBoxLayout(map_row_widget)
-        map_row.setContentsMargins(0, 0, 0, 0)
-
-        self.map_path_input = QtW.QLineEdit(file_path)
-
-        self.map_name_input = QtW.QLineEdit()
-        self.map_name_input.setPlaceholderText("Map_")
-        self.map_name_input.setFixedWidth(100)
-
-        btn_remove = QtW.QPushButton("Remove")
-        btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(self.mapping_remove_entry)
-
-        map_row.addWidget(self.map_path_input, stretch=1)
-        map_row.addWidget(self.map_name_input)
-        map_row.addWidget(btn_remove)
-
-        # Second row (Map Version, Macro save option, DPLC option)
-        map_row2_widget = QtW.QWidget()
-        map_row2 = QtW.QHBoxLayout(map_row2_widget)
-        map_row2.setContentsMargins(0, 0, 0, 0)
-
-        # Map Version Dropdown
-        self.map_dropdown = QtW.QComboBox()
-        self.map_dropdown.setToolTip("Select Spritemap Version (Based on game)")
-        # self.map_dropdown.currentIndexChanged.connect(self.on_map_dropdown_changed)
-
-        # Later, I will add a second Sonic 3K version (for Object DPLCs)
-        # An additional option will be included for user-defined formats
-        self.map_dropdown.addItem("Sonic 1", userData=None)
-        self.map_dropdown.addItem("Sonic 2", userData=None)
-        self.map_dropdown.addItem("Sonic 3K", userData=None)
-        map_row2.addWidget(self.map_dropdown, stretch=1)
-
-        # Spacer to separate the dropdown with the checkboxes
-        # Invisible spacer to keep textboxes aligned with the row above
-        spacer = QtW.QWidget()
-        spacer.setFixedWidth(60)
-        map_row2.addWidget(spacer)
-
-        # Save with Macros Checkbox (only affects saving to .asm)
-        self.macro_cb = QtW.QCheckBox("Save with MapMacros")
-        map_row2.addWidget(self.macro_cb)
-
-        # DPLC Checkbox
-        dplc_cb = QtW.QCheckBox("Enable DPLCs")
-        map_row2.addWidget(dplc_cb)
-
-        # DPLC Row (Hidden by default)
-        dplc_row_widget = QtW.QWidget()
-        dplc_row = QtW.QHBoxLayout(dplc_row_widget)
-        dplc_row.setContentsMargins(0, 0, 0, 0)
-
-        dplc_path_input = QtW.QLineEdit()
-        dplc_path_input.setPlaceholderText("DPLC Filepath...")
-
-        # Browse button to grab the DPLC file
-        btn_dplc_browse = QtW.QPushButton("...")
-        btn_dplc_browse.setFixedWidth(30)
-        btn_dplc_browse.clicked.connect(lambda: self.mapping_dplc_browse(dplc_path_input))
-
-        dplc_name_input = QtW.QLineEdit()
-        dplc_name_input.setPlaceholderText("DPLC_")
-        dplc_name_input.setFixedWidth(100)
-
-        # Invisible spacer to keep textboxes aligned with the row above
-        spacer2 = QtW.QWidget()
-        spacer2.setFixedWidth(50)
-
-        dplc_row.addWidget(dplc_path_input, stretch=1)
-        dplc_row.addWidget(btn_dplc_browse)
-        dplc_row.addWidget(dplc_name_input)
-        dplc_row.addWidget(spacer2)
-
-        # Connect checkbox to visibility toggle
-        dplc_row_widget.setVisible(False)
-        dplc_cb.toggled.connect(dplc_row_widget.setVisible)
-
-        # Assembly
-        layout.addWidget(map_row_widget)
-        layout.addWidget(map_row2_widget)
-        layout.addWidget(dplc_row_widget)
-
-        self.map_entries_layout.addWidget(self.map_widget)
-        self.mapping_update_file_controls()
+        self.map_path_input.setText(file_path)
+        self.map_file_table.selectRow(0)
 
     def mapping_remove_entry(self):
-        # Removes the mapping/DPLC widget block and re-enables the Add button
-        if self.map_widget:
-            # Remove widget group from the layout
-            self.map_entries_layout.removeWidget(self.map_widget)
-            # Schedule widget group for deletion
-            self.map_widget.deleteLater()
+        # Removes the mapping/DPLC data and re-enables the Add button
+        self.map_path_input.clear()
+        self.map_name_input.clear()
 
-            # Dereference stale widget group
-            self.map_widget = None
-            self.map_path_input = None
-            self.map_dropdown = None
-            self.map_name_input = None
-            self.macro_cb = None
+        self.dplc_path_input.clear()
+        self.dplc_name_input.clear()
+
+        self.map_dropdown.setCurrentIndex(0)
+        self.macro_cb.setChecked(False)
+        self.dplc_cb.setChecked(False)
+
+        self.map_file_table.clearSelection()
 
         # This re-enables the Add button
         self.mapping_update_file_controls()
 
     def mapping_update_file_controls(self):
         # Disable Add and Enable Load/Save if map asset is loaded
-        has_asset = self.map_widget is not None
+        has_asset = bool(self.map_path_input.text().strip())
 
-        self.btn_map_add.setDisabled(has_asset)
+        self.btn_map_add.setEnabled(not has_asset)
         self.btn_map_load.setEnabled(has_asset)
         self.btn_map_save.setEnabled(has_asset)
+
+        # Always available to reset the table
+        self.btn_map_remove.setEnabled(True)
 
     def mapping_dplc_browse(self, line_edit):
         # Get top-level window to access project file
