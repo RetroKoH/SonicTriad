@@ -443,36 +443,43 @@ class SpriteEditor(QtW.QWidget):
         position_row = QtW.QHBoxLayout()
         position_row.addWidget(QtW.QLabel("X:"))
         position_row.addWidget(self.piece_x_spinbox)
-        position_row.addWidget(self.piece_x_flip_checkbox)
         position_row.addStretch()
         position_row.addWidget(QtW.QLabel("Y:"))
         position_row.addWidget(self.piece_y_spinbox)
-        position_row.addWidget(self.piece_y_flip_checkbox)
         position_row.addStretch()
 
-        # Row 2: Tile and dimensions
+        # Row 2: Size dimensions
+        size_row = QtW.QHBoxLayout()
+        size_row.addWidget(QtW.QLabel("Width:"))
+        size_row.addWidget(self.piece_width_spinbox)
+        size_row.addStretch()
+        size_row.addWidget(QtW.QLabel("Height:"))
+        size_row.addWidget(self.piece_height_spinbox)
+        size_row.addStretch()
+
+        # Row 3: Art Tile
         tile_row = QtW.QHBoxLayout()
         tile_row.addWidget(QtW.QLabel("Tile:"))
         tile_row.addWidget(self.piece_tile_spinbox)
         tile_row.addStretch()
-        tile_row.addWidget(QtW.QLabel("Width:"))
-        tile_row.addWidget(self.piece_width_spinbox)
-        tile_row.addWidget(QtW.QLabel("Height:"))
-        tile_row.addWidget(self.piece_height_spinbox)
+        tile_row.addWidget(QtW.QLabel("Palette:"))
+        tile_row.addWidget(self.piece_palette_spinbox)
         tile_row.addStretch()
 
-        # Row 3: Palette and priority
-        attributes_row = QtW.QHBoxLayout()
-        attributes_row.addWidget(QtW.QLabel("Palette Line:"))
-        attributes_row.addWidget(self.piece_palette_spinbox)
-        attributes_row.addStretch()
-        attributes_row.addWidget(self.piece_priority_checkbox)
-        attributes_row.addStretch()
+        # Row 4: Art Tile
+        flag_row = QtW.QHBoxLayout()
+        flag_row.addWidget(self.piece_x_flip_checkbox)
+        flag_row.addStretch()
+        flag_row.addWidget(self.piece_y_flip_checkbox)
+        flag_row.addStretch()
+        flag_row.addWidget(self.piece_priority_checkbox)
+        flag_row.addStretch()
 
         # Stack the rows
         piece_layout.addLayout(position_row)
+        piece_layout.addLayout(size_row)
         piece_layout.addLayout(tile_row)
-        piece_layout.addLayout(attributes_row)
+        piece_layout.addLayout(flag_row)
 
         # Group widgets by type
         self.piece_spinboxes = {
