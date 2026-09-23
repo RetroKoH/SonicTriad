@@ -218,33 +218,48 @@ class SpriteEditor(QtW.QWidget):
 
     def ui_build_art_tab(self):
         art_tab = QtW.QWidget()
-        art_layout = QtW.QHBoxLayout(art_tab)
+        art_layout = QtW.QVBoxLayout(art_tab)
 
         # File buttons
-        art_btn_layout = QtW.QVBoxLayout()
-        art_btn_layout.setSpacing(12)
-        art_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
-            width=60, on_clicked=self.art_entry_new, layout=art_btn_layout)
-        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
-            width=60, on_clicked=self.art_entry_load, enabled=False, layout=art_btn_layout)
-        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
-            width=60, on_clicked=self.art_entry_save, enabled=False, layout=art_btn_layout)
+        art_toolbar = QtW.QHBoxLayout()
+        art_toolbar.setSpacing(4)
+        art_toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # Load/Save are disabled by default until palettes are added
-        self.btn_art_load.setEnabled(False)
-        self.btn_art_save.setEnabled(False)
+        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
+            width=50, on_clicked=self.art_entry_new, layout=art_toolbar)
+        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
+            width=50, on_clicked=self.art_entry_load, enabled=False, layout=art_toolbar)
+        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
+            width=50, on_clicked=self.art_entry_save, enabled=False, layout=art_toolbar)
+        self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove art tile entry",
+            width=50, on_clicked=lambda: self.art_remove_entry(), enabled=False, layout=art_toolbar)
 
-        art_layout.addLayout(art_btn_layout)
+        art_layout.addLayout(art_toolbar)
 
-        # Art entry container
-        self.art_entries_widget = QtW.QWidget()
-        self.art_entries_layout = QtW.QVBoxLayout(self.art_entries_widget)
-        self.art_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Table: initially zero rows, four columns
+        self.art_file_table = QtW.QTableWidget(0, 4)
+        self.art_file_table.setHorizontalHeaderLabels(
+            ["File", "Compression", "VRAM location", "Tile count"]
+        )
 
-        art_entries_scroll = create_scrollarea(self.art_entries_widget)
-        art_layout.addWidget(art_entries_scroll, stretch=1)
+        self.art_file_table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.art_file_table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
+        self.art_file_table.setSortingEnabled(False)
+
+        # Let the filename column take the remaining space.
+        header = self.art_file_table.horizontalHeader()
+        header.setSectionResizeMode(0, QtW.QHeaderView.ResizeMode.Stretch)
+
+        self.art_file_table.setColumnWidth(1, 120)
+        self.art_file_table.setColumnWidth(2, 110)
+        self.art_file_table.setColumnWidth(3, 90)
+
+        self.art_file_table.verticalHeader().setDefaultSectionSize(30)
+
+        #self.art_file_table.itemSelectionChanged.connect(self.art_update_file_controls)
+
+        art_layout.addWidget(self.art_file_table, stretch=1)
 
         return art_tab
 
@@ -924,9 +939,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Clean out Art rows
         while self.art_rows:
-            path_input, _, _, _ = self.art_rows[0]
-            top_widget = path_input.parentWidget().parentWidget()
-            self.art_remove_entry(top_widget, self.art_rows[0])
+            self.art_remove_entry(0)
 
         # Clean out Mapping rows
         if self.map_widget:
@@ -1451,7 +1464,7 @@ class SpriteEditor(QtW.QWidget):
         self.vram_tiles.clear()
 
         # Loop for each filepath added
-        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
+        for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
             file_path_str = path_input.text().strip()
             if not file_path_str:
                 continue
@@ -1523,7 +1536,7 @@ class SpriteEditor(QtW.QWidget):
         self.render_sprite_frame()
 
     def art_entry_save(self):
-        for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
+        for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
             file_path_str = path_input.text().strip()
             if not file_path_str:
                 continue
@@ -1589,106 +1602,77 @@ class SpriteEditor(QtW.QWidget):
         if len(self.art_rows) >= 3:
             return
 
-        artfile_widget = QtW.QWidget()
-
-        # Appends a file row and edit row to the right-hand panel for art editing
-        layout = QtW.QVBoxLayout(artfile_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Primary Art Row (Filepath and Compression)
-        art_row_widget = QtW.QWidget()
-        art_row = QtW.QHBoxLayout(art_row_widget)
-        art_row.setContentsMargins(0, 0, 0, 0)
-
         # Filepath text box
         path_input = QtW.QLineEdit(file_path)
 
         # Compression Dropdown
         comp_combo = QtW.QComboBox()
         comp_combo.addItems(["Uncompressed", "Nemesis", "Kosinski", "Kosinski-M"])
-        comp_combo.setToolTip("Compression Format")
-        comp_combo.setFixedWidth(110)
 
         # Set compression dropdown based on file extension (if not .bin)
-        if file_path.endswith(".unc"):
-            comp_combo.setCurrentText("Uncompressed")
-        if file_path.endswith(".nem"):
-            comp_combo.setCurrentText("Nemesis")
-        elif file_path.endswith(".kos"):
-            comp_combo.setCurrentText("Kosinski")
-        elif file_path.endswith(".kosm"):
-            comp_combo.setCurrentText("Kosinski-M")
+        compression_by_extension = {
+            ".nem": "Nemesis",
+            ".kos": "Kosinski",
+            ".kosm": "Kosinski-M",
+        }
+        extension = Path(file_path).suffix.lower()
+        comp_combo.setCurrentText(compression_by_extension.get(extension, "Uncompressed"))
 
-        art_row.addWidget(path_input, stretch=1)
-        art_row.addWidget(comp_combo)
-
-        # Secondary Art Row (Location, Tile Count, Remove Button)
-        art_row2_widget = QtW.QWidget()
-        art_row2 = QtW.QHBoxLayout(art_row2_widget)
-        art_row2.setContentsMargins(0, 0, 0, 0)
-
-        # VRAM Location Input (Hexadecimal)
-        art_row2.addWidget(QtW.QLabel("VRAM Location:"))
         artloc_spin = QtW.QSpinBox()
         artloc_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
         artloc_spin.setDisplayIntegerBase(16)  # Display in hex
         artloc_spin.setPrefix("$")
-        artloc_spin.setToolTip("Starting VRAM Location (Hex)")
-        artloc_spin.setFixedWidth(70)
-        art_row2.addWidget(artloc_spin)
 
-        # Art Tile Count Input (Decimal)
-        art_row2.addWidget(QtW.QLabel("Tile Count:"))
         count_spin = QtW.QSpinBox()
         count_spin.setRange(0, 2047)  # Cap at 2048 tiles
         count_spin.setToolTip("Number of Tiles" +
                               "Load: Number to load (0 to load all).\n" +
                               "Save: Number to save.")
-        count_spin.setFixedWidth(70)
-        art_row2.addWidget(count_spin)
 
-        # Store elements in the tracking array
-        row_data = (path_input, artloc_spin, comp_combo, count_spin)
+        # Store elements
+        row_data = (path_input, comp_combo, artloc_spin, count_spin)
         self.art_rows.append(row_data)
 
-        # Remove button
-        btn_remove = QtW.QPushButton("Remove")
-        btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(
-            lambda checked=False, _r=artfile_widget, _data=row_data: self.art_remove_entry(_r, _data)
-        )
-        # Spacer absorbs all extra space before the Remove button
-        art_row2.addStretch()
-        art_row2.addWidget(btn_remove)
+        # Add and assemble a table row
+        row = self.art_file_table.rowCount()
+        self.art_file_table.insertRow(row)
 
-        # Assembly
-        layout.addWidget(art_row_widget)
-        layout.addWidget(art_row2_widget)
+        self.art_file_table.setCellWidget(row, 0, path_input)
+        self.art_file_table.setCellWidget(row, 1, comp_combo)
+        self.art_file_table.setCellWidget(row, 2, artloc_spin)
+        self.art_file_table.setCellWidget(row, 3, count_spin)
 
-        self.art_entries_layout.addWidget(artfile_widget)
+        self.art_file_table.selectRow(row)
+        self.art_update_file_controls()
 
         # Initial evaluation
         self.art_update_file_controls()
 
-    def art_remove_entry(self, row_widget, row_data):
-        # Removes an art widget row and re-evaluate capacity
-        if row_data in self.art_rows:
-            self.art_rows.remove(row_data)
+    def art_remove_entry(self, row=None):
+        if row is None:
+            row = self.art_file_table.currentRow()
 
-        self.art_entries_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
+        if not 0 <= row < len(self.art_rows):
+            return
+
+        # Remove an art row and re-evaluate capacity
+        self.art_rows.pop(row)
+        self.art_file_table.removeRow(row)
+
+        if self.art_rows:
+            self.art_file_table.selectRow(min(row, len(self.art_rows) - 1))
 
         self.art_update_file_controls()
 
     def art_update_file_controls(self):
-        # Disable Add button if we reach the 3-file limit
-        is_full = (len(self.art_rows) >= 3)
-        self.btn_art_add.setDisabled(is_full)
+        count = len(self.art_rows)
+        selected_row = self.art_file_table.currentRow()
 
-        # Load/Save are only enabled when art filepaths are present
-        has_rows = len(self.art_rows) > 0
-        self.btn_art_load.setEnabled(has_rows)
-        self.btn_art_save.setEnabled(has_rows)
+        # Enable/Disable buttons based on number of art files
+        self.btn_art_add.setEnabled(count < 3)
+        self.btn_art_load.setEnabled(count > 0)
+        self.btn_art_save.setEnabled(count > 0)
+        self.btn_art_remove.setEnabled(0 <= selected_row < count)
 
 
     # --------------------------------------------------
