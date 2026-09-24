@@ -514,9 +514,47 @@ class SpriteEditor(QtW.QWidget):
         frame_controls.addStretch()
         map_editor.addLayout(frame_controls)
 
+        frame_buttons = QtW.QHBoxLayout()
+        frame_buttons.setSpacing(4)
+
+        self.btn_piece_add = create_pushbutton("Add Frame",
+            tooltip="Add a frame",
+            #on_clicked=self.sprite_add_frame,
+            enabled=False, layout=frame_buttons
+        )
+
+        self.btn_piece_remove = create_pushbutton("Remove Frame",
+            width=85, tooltip="Remove the current frame",
+            #on_clicked=self.sprite_remove_frame,
+            enabled=False, layout=frame_buttons
+        )
+
+        frame_buttons.addStretch()
+        map_editor.addLayout(frame_buttons)
+
         piece_list = QtW.QHBoxLayout()
         piece_list.addWidget(self.ui_build_piece_list())
         map_editor.addLayout(piece_list)
+
+        map_editor.addSpacing(8)
+
+        piece_buttons = QtW.QHBoxLayout()
+        piece_buttons.setSpacing(4)
+
+        self.btn_piece_add = create_pushbutton("Add Piece",
+            tooltip="Add a piece to the current frame",
+            #on_clicked=self.sprite_add_piece,
+            enabled=False, layout=piece_buttons
+        )
+
+        self.btn_piece_remove = create_pushbutton("Remove Pieces",
+            width=85, tooltip="Remove the selected pieces",
+            #on_clicked=self.sprite_remove_pieces,
+            enabled=False, layout=piece_buttons
+        )
+
+        piece_buttons.addStretch()
+        map_editor.addLayout(piece_buttons)
 
         map_editor.addSpacing(8)
 
