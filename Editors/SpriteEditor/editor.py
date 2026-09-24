@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter
 
 from UI.widgets import (
     create_combobox,
+    create_label,
     create_pushbutton,
     create_scrollarea,
     create_splitter,
@@ -505,15 +506,48 @@ class SpriteEditor(QtW.QWidget):
         frame_controls.addStretch()
         map_editor.addLayout(frame_controls)
 
-        map_editor.addWidget(self.ui_build_piece_controls())
+        piece_list = QtW.QHBoxLayout()
+        piece_list.addWidget(self.ui_build_piece_list())
+        map_editor.addLayout(piece_list)
+
+        map_editor.addSpacing(8)
+
+        piece_controls = QtW.QVBoxLayout()
+        self.index_label = create_label("Piece Properties", object_name="infoLabel", layout=piece_controls)
+        piece_controls.addLayout(self.ui_build_piece_controls())
+        map_editor.addLayout(piece_controls)
+
         map_editor.addStretch()
 
         return self.map_edit_box
 
+    def ui_build_piece_list(self):
+        self.piece_list_table = QtW.QTableWidget(0, 1)
+        table = self.piece_list_table
+
+        table.setHorizontalHeaderLabels(["Piece List"])
+
+        table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.ExtendedSelection)
+        table.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSortingEnabled(False)
+
+        table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
+        table.horizontalHeader().setSectionResizeMode(0, QtW.QHeaderView.ResizeMode.Stretch)
+
+        table.verticalHeader().setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
+        table.verticalHeader().setDefaultSectionSize(26)
+
+        # Starting dimensions
+        table.setMinimumHeight(100)
+        table.setMaximumHeight(80)
+
+        table.itemSelectionChanged.connect(self.sprite_piece_list_selection_changed)
+
+        return table
+
     def ui_build_piece_controls(self):
-        self.piece_controls_box = QtW.QGroupBox("Piece Properties")
-        piece_layout = QtW.QVBoxLayout(self.piece_controls_box)
-        fields = QtW.QFormLayout()
+        piece_layout = QtW.QVBoxLayout()
 
         # Position in pixels, relative to the sprite origin
         self.piece_x_spinbox = create_spinbox(
@@ -625,7 +659,7 @@ class SpriteEditor(QtW.QWidget):
                     self.sprite_edit_piece_property(field, checked)
             )
 
-        return self.piece_controls_box
+        return piece_layout
 
 
     # --------------------------------------------------
@@ -1334,10 +1368,80 @@ class SpriteEditor(QtW.QWidget):
             if 0 <= index < len(pieces)
         ]
 
+    def sprite_refresh_piece_list(self):
+        if not hasattr(self, "piece_list_table"):
+            return
+
+        table = self.piece_list_table
+        frame_index = self.frame_spinbox.value()
+
+        if 0 <= frame_index < len(self.map_frames):
+            pieces = self.map_frames[frame_index]
+        else:
+            pieces = []
+
+        # Remove selection indices that no longer exist
+        self.selected_pieces.intersection_update(range(len(pieces)))
+
+        previous_state = table.blockSignals(True)
+
+        try:
+            table.setRowCount(len(pieces))
+
+            for row, piece in enumerate(pieces):
+                name = (
+                    piece.get("name")
+                    or piece.get("label")
+                    or f"Piece {row}"
+                )
+
+                item = table.item(row, 0)
+
+                if item is None:
+                    item = QtW.QTableWidgetItem()
+                    item.setFlags(
+                        Qt.ItemFlag.ItemIsEnabled |
+                        Qt.ItemFlag.ItemIsSelectable
+                    )
+                    table.setItem(row, 0, item)
+
+                if item.text() != str(name):
+                    item.setText(str(name))
+
+                item.setToolTip(str(name))
+
+                # Match the zero-based indices used by the editor
+                if table.verticalHeaderItem(row) is None:
+                    table.setVerticalHeaderItem(row, QtW.QTableWidgetItem(str(row)))
+
+            # Synchronize selection from the sprite viewer.
+            table_selection = {index.row() for index in table.selectionModel().selectedRows()}
+
+            if table_selection != self.selected_pieces:
+                table.clearSelection()
+
+                for row in sorted(self.selected_pieces):
+                    table.setRangeSelected(QtW.QTableWidgetSelectionRange(row, 0, row, 0),True)
+
+        finally:
+            table.blockSignals(previous_state)
+
+    def sprite_piece_list_selection_changed(self):
+        self.selected_pieces = {index.row() for index in self.piece_list_table.selectionModel().selectedRows()}
+
+        self.piece_drag = None
+        self.hovered_piece = None
+        self.sprite_end_box_select()
+
+        self.render_sprite_frame()
+
+    # To-do: Change this to also trigger when we choose from the table
     def sprite_refresh_piece_controls(self):
         # Some UI construction callbacks may run before these exist
         if not hasattr(self, "piece_spinboxes"):
             return
+
+        self.sprite_refresh_piece_list()
 
         selected = self.sprite_get_selected_pieces()
 
@@ -1364,7 +1468,7 @@ class SpriteEditor(QtW.QWidget):
             return
 
         self.piece_controls_state = state
-        self.piece_controls_box.setEnabled(bool(selected))
+        self.index_label.setEnabled(bool(selected))
 
         if selected:
             index, reference_piece = selected[0]
@@ -1373,10 +1477,10 @@ class SpriteEditor(QtW.QWidget):
             if len(selected) > 1:
                 title += f" — {len(selected)} selected"
 
-            self.piece_controls_box.setTitle(title)
+            self.index_label.setText(title)
         else:
             reference_piece = None
-            self.piece_controls_box.setTitle("Piece Properties")
+            self.index_label.setText("Piece Properties")
 
         # Updating the UI must not write values back into the data
         for field, spinbox in self.piece_spinboxes.items():
@@ -1461,7 +1565,7 @@ class SpriteEditor(QtW.QWidget):
                     changed = True
 
         # Force a refresh even if movement was limited or rejected
-        self._piece_controls_state = None
+        self.piece_controls_state = None
         self.sprite_refresh_piece_controls()
 
         if changed:
