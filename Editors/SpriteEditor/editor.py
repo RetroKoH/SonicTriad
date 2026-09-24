@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter
 from UI.widgets import (
     create_combobox,
     create_label,
+    create_lineedit,
     create_pushbutton,
     create_scrollarea,
     create_splitter,
@@ -305,7 +306,7 @@ class SpriteEditor(QtW.QWidget):
         self.map_file_table = QtW.QTableWidget(2, 3)
         table = self.map_file_table
 
-        table.setHorizontalHeaderLabels(["Type", "File", "Label Prefix"])
+        table.setHorizontalHeaderLabels(["Type", "File", "Map Label"])
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
@@ -502,6 +503,13 @@ class SpriteEditor(QtW.QWidget):
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
             on_value_changed=self.on_sprite_frame_changed, layout=frame_controls)
+
+        frame_controls.addStretch()
+
+        self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)",
+            layout=frame_controls)
+        self.frame_name_input.setEnabled(False)
+        self.frame_name_input.editingFinished.connect(self.on_sprite_frame_label_changed)
 
         frame_controls.addStretch()
         map_editor.addLayout(frame_controls)
@@ -1102,9 +1110,10 @@ class SpriteEditor(QtW.QWidget):
         # Flush out VRAM (art tiles)
         self.vram_tiles.clear()
 
-        # Clear Sprite mappings
+        # Clear Sprite mappings and labels
         self.map_frames.clear()
         self.frame_labels.clear()
+        self.sprite_refresh_frame_name()
 
         # Reset UI widgets in the Sprite Viewer
         self.vram_spinbox.setValue(0)
@@ -1231,8 +1240,40 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_refresh_piece_controls()
 
     def on_sprite_frame_changed(self):
+        self.sprite_refresh_frame_name()
         self.sprite_clear_selection()
         self.render_sprite_frame()
+
+    def on_sprite_frame_label_changed(self):
+        frame_index = self.frame_spinbox.value()
+
+        # Nothing to rename unless both the frame and its label exist
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            self.sprite_refresh_frame_name()
+            return
+
+        name = self.frame_name_input.text().strip()
+
+        # Blank input leaves the stored name unchanged
+        if name:
+            self.frame_labels[frame_index] = name
+
+        # Display the accepted name, or restore the previous one
+        self.sprite_refresh_frame_name()
+
+    def sprite_refresh_frame_name(self):
+        frame_index = self.frame_spinbox.value()
+        has_frame = (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        )
+
+        # Change label text box to that of the new frame's label (or blank if there is no frame)
+        self.frame_name_input.setEnabled(has_frame)
+        self.frame_name_input.setText(self.frame_labels[frame_index] if has_frame else "")
 
     def sprite_update_hover(self, position=None, *, redraw=True):
         piece_index = None
@@ -1435,7 +1476,6 @@ class SpriteEditor(QtW.QWidget):
 
         self.render_sprite_frame()
 
-    # To-do: Change this to also trigger when we choose from the table
     def sprite_refresh_piece_controls(self):
         # Some UI construction callbacks may run before these exist
         if not hasattr(self, "piece_spinboxes"):
@@ -1906,8 +1946,9 @@ class SpriteEditor(QtW.QWidget):
             map_version = self.map_dropdown.currentIndex() + 1
             load_mappings(self, path, map_version)
 
-            # Refresh frame window
+            # Refresh frame window and frame label
             self.render_sprite_frame()
+            self.sprite_refresh_frame_name()
 
             QtW.QMessageBox.information(
                 self, "Mappings Loaded",
