@@ -241,12 +241,14 @@ class SpriteEditor(QtW.QWidget):
         table = self.art_file_table
 
         table.setHorizontalHeaderLabels(["File", "Compression", "VRAM location", "Tile count"])
-        #table.verticalHeader().hide()
-        table.verticalHeader().setDefaultSectionSize(30)
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
         table.setSortingEnabled(False)
+
+        header = table.verticalHeader()
+        header.setDefaultSectionSize(20)
+        header.setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
 
         # Let the filename column take the remaining space
         header = table.horizontalHeader()
@@ -303,12 +305,15 @@ class SpriteEditor(QtW.QWidget):
         table = self.map_file_table
 
         table.setHorizontalHeaderLabels(["Type", "File", "Label Prefix"])
-        table.verticalHeader().hide()
-        table.verticalHeader().setDefaultSectionSize(30)
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
         table.setSortingEnabled(False)
+
+        header = table.verticalHeader()
+        header.hide()
+        header.setDefaultSectionSize(20)
+        header.setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
 
         # Let the filename column take space as the window resizes
         header = table.horizontalHeader()
@@ -393,12 +398,16 @@ class SpriteEditor(QtW.QWidget):
         table = self.pal_file_table
 
         table.setHorizontalHeaderLabels(["File", "Lines"])
-        #table.verticalHeader().hide()
-        table.verticalHeader().setDefaultSectionSize(30)
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
         table.setSortingEnabled(False)
+
+        header = table.verticalHeader()
+        header.setDefaultSectionSize(20)
+        header.setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
+        header.setSectionsMovable(True)
+        header.sectionMoved.connect(self.palette_move_entry)
 
         # Let the filename column take the remaining space
         header = table.horizontalHeader()
@@ -790,7 +799,7 @@ class SpriteEditor(QtW.QWidget):
         # Save Art files as they are stored in the File Manager
         if self.art_rows:
             new_art = []
-            for path_input, offset_spin, comp_combo, count_spin in self.art_rows:
+            for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
                 p_text = path_input.text().strip()
                 if p_text:
                     new_art.append({
@@ -980,7 +989,7 @@ class SpriteEditor(QtW.QWidget):
             self.art_add_entry(resolve_path_str(raw_path))
 
             # New row at the end of the list
-            path_input, offset_spin, comp_combo, count_spin = self.art_rows[-1]
+            path_input, comp_combo, offset_spin, count_spin = self.art_rows[-1]
             offset_spin.setValue(art.get("offset", 0))
             comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
             count_spin.setValue(0)  # Load all tiles by default
@@ -2072,6 +2081,42 @@ class SpriteEditor(QtW.QWidget):
         if self.pal_rows:
             self.pal_file_table.selectRow(min(row, len(self.pal_rows) - 1))
 
+        self.palette_update_file_controls()
+
+    def palette_move_entry(self, logical_index, old_position, new_position):
+        if old_position == new_position:
+            return
+
+        # Collect filepaths and line counts
+        entries = [
+            (path_input.text(), int(line_combo.currentText() or "1"))
+            for path_input, line_combo in self.pal_rows
+        ]
+
+        # Reorder file assignments
+        entry = entries.pop(old_position)
+        entries.insert(new_position, entry)
+
+        # Restore header order; apply the move to the cell values instead
+        header = self.pal_file_table.verticalHeader()
+        previous_state = header.blockSignals(True)
+        header.moveSection(new_position, old_position)
+        header.blockSignals(previous_state)
+
+        # Update the existing widgets
+        for widgets, entry in zip(self.pal_rows, entries):
+            path_input, line_combo = widgets
+            file_path, line_count = entry
+
+            path_input.setText(file_path)
+
+            previous_state = line_combo.blockSignals(True)
+            line_combo.clear()
+            line_combo.addItems(["1", "2", "3", "4"])
+            line_combo.setCurrentText(str(line_count))
+            line_combo.blockSignals(previous_state)
+
+        self.pal_file_table.selectRow(new_position)
         self.palette_update_file_controls()
 
     def palette_update_file_controls(self):
