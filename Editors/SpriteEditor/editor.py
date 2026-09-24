@@ -231,7 +231,7 @@ class SpriteEditor(QtW.QWidget):
             width=50, on_clicked=self.art_entry_load, enabled=False, layout=toolbar)
         self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
             width=50, on_clicked=self.art_entry_save, enabled=False, layout=toolbar)
-        self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove art tile entry",
+        self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove the selected art tile entry",
             width=50, on_clicked=lambda: self.art_remove_entry(), enabled=False, layout=toolbar)
 
         layout.addLayout(toolbar)
@@ -241,7 +241,7 @@ class SpriteEditor(QtW.QWidget):
         table = self.art_file_table
 
         table.setHorizontalHeaderLabels(["File", "Compression", "VRAM location", "Tile count"])
-        table.verticalHeader().hide()
+        #table.verticalHeader().hide()
         table.verticalHeader().setDefaultSectionSize(30)
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -258,6 +258,7 @@ class SpriteEditor(QtW.QWidget):
         table.itemSelectionChanged.connect(self.art_update_file_controls)
 
         layout.addWidget(table, stretch=1)
+        self.art_update_file_controls()
 
         return tab
 
@@ -363,38 +364,54 @@ class SpriteEditor(QtW.QWidget):
         self.dplc_cb.toggled.connect(lambda enabled: table.setRowHidden(1, not enabled))
 
         layout.addWidget(table, stretch=1)
-
         self.mapping_update_file_controls()
 
         return tab
 
     def ui_build_palettes_tab(self):
-        palettes_tab = QtW.QWidget()
-        palettes_layout = QtW.QHBoxLayout(palettes_tab)
+        tab = QtW.QWidget()
+        layout = QtW.QVBoxLayout(tab)
 
         # File buttons
-        pal_btn_layout = QtW.QVBoxLayout()
-        pal_btn_layout.setSpacing(12)
-        pal_btn_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        toolbar = QtW.QHBoxLayout()
+        toolbar.setSpacing(4)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
-            width=60, on_clicked=self.palette_entry_new, layout=pal_btn_layout)
+            width=50, on_clicked=self.palette_entry_new, layout=toolbar)
         self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes",
-            width=60, on_clicked=self.palette_entry_load, enabled=False, layout=pal_btn_layout)
+            width=50, on_clicked=self.palette_entry_load, enabled=False, layout=toolbar)
         self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data",
-            width=60, on_clicked=self.palette_entry_save, enabled=False, layout=pal_btn_layout)
+            width=50, on_clicked=self.palette_entry_save, enabled=False, layout=toolbar)
+        self.btn_pal_remove = create_pushbutton("Remove", tooltip="Remove the selected palette entry",
+            width=50, on_clicked=lambda: self.palette_remove_entry(), enabled=False, layout=toolbar)
 
-        palettes_layout.addLayout(pal_btn_layout)
+        layout.addLayout(toolbar)
 
-        # Palette entry container
-        self.pal_entries_widget = QtW.QWidget()
-        self.pal_entries_layout = QtW.QVBoxLayout(self.pal_entries_widget)
-        self.pal_entries_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Table: initially zero rows, four columns
+        self.pal_file_table = QtW.QTableWidget(0, 2)
+        table = self.pal_file_table
 
-        pal_entries_scroll = create_scrollarea(self.pal_entries_widget)
-        palettes_layout.addWidget(pal_entries_scroll, stretch=1)
+        table.setHorizontalHeaderLabels(["File", "Lines"])
+        #table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(30)
 
-        return palettes_tab
+        table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
+        table.setSortingEnabled(False)
+
+        # Let the filename column take the remaining space
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QtW.QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(1, 75)
+        table.verticalHeader().setDefaultSectionSize(30)
+
+        table.itemSelectionChanged.connect(self.palette_update_file_controls)
+
+        layout.addWidget(table, stretch=1)
+        self.palette_update_file_controls()
+
+        return tab
 
     def ui_build_editing_panel(self):
         editing_panel = QtW.QWidget()
@@ -995,8 +1012,7 @@ class SpriteEditor(QtW.QWidget):
         """Remove file-manager entries without clearing loaded data or deleting files."""
         # Clean out Palette rows
         while self.pal_rows:
-            path_input, line_combo = self.pal_rows[0]
-            self.palette_remove_entry(path_input.parentWidget(), line_combo, path_input)
+            self.palette_remove_entry(0)
 
         # Clean out Art rows
         while self.art_rows:
@@ -2007,10 +2023,13 @@ class SpriteEditor(QtW.QWidget):
             current_index += num_colors
 
     def palette_add_entry(self, file_path):
-        # Appends a 3-widget row to the right-hand panel for palette editing
-        row_widget = QtW.QWidget()
-        row_layout = QtW.QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
+        # Each new file needs at least one available palette line.
+        total_lines = sum(
+            int(combo.currentText() or "1")
+            for combo in self.pal_line_combos
+        )
+        if total_lines >= 4:
+            return
 
         # Filepath text box
         path_input = QtW.QLineEdit(file_path)
@@ -2018,43 +2037,40 @@ class SpriteEditor(QtW.QWidget):
         # Line count dropdown (1-4)
         line_combo = QtW.QComboBox()
         line_combo.addItem("1")    # Prime it with 1 for palette_update_file_controls
-        line_combo.setFixedWidth(50)
+        line_combo.setToolTip("Number of palette lines used by this file")
+        line_combo.currentIndexChanged.connect(self.palette_update_file_controls)
 
         # Track the combo boxes in a list for evaluation
         self.pal_line_combos.append(line_combo)
         self.pal_rows.append((path_input, line_combo))
 
-        # Remove button
-        btn_remove = QtW.QPushButton("Remove")
-        btn_remove.setFixedWidth(50)
-        btn_remove.clicked.connect(
-            lambda checked=False, _r=row_widget, _c=line_combo,
-                   _p=path_input: self.palette_remove_entry(_r, _c, _p)
-        )
+        # Add the widgets to the table
+        row = self.pal_file_table.rowCount()
+        self.pal_file_table.insertRow(row)
 
-        # Re-evaluate capacity whenever a dropdown value is changed
-        line_combo.currentIndexChanged.connect(self.palette_update_file_controls)
+        self.pal_file_table.setCellWidget(row, 0, path_input)
+        self.pal_file_table.setCellWidget(row, 1, line_combo)
 
-        row_layout.addWidget(path_input, stretch=1)
-        row_layout.addWidget(line_combo)
-        row_layout.addWidget(btn_remove)
-
-        self.pal_entries_layout.addWidget(row_widget)
+        self.pal_file_table.selectRow(row)
 
         # Seems redundant, but we need an initial evaluation
         self.palette_update_file_controls()
 
-    def palette_remove_entry(self, row_widget, line_combo, path_input):
-        # Removes a palette widget row and re-evaluate capacity
-        if line_combo in self.pal_line_combos:
-            self.pal_line_combos.remove(line_combo)
+    def palette_remove_entry(self, row=None):
+        if row is None:
+            row = self.pal_file_table.currentRow()
 
-        row = (path_input, line_combo)
-        if row in self.pal_rows:
-            self.pal_rows.remove(row)
+        if not 0 <= row < len(self.pal_rows):
+            return
 
-        self.pal_entries_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
+        # Remove references before the table deletes the widgets
+        path_input, line_combo = self.pal_rows.pop(row)
+        self.pal_line_combos.remove(line_combo)
+
+        self.pal_file_table.removeRow(row)
+
+        if self.pal_rows:
+            self.pal_file_table.selectRow(min(row, len(self.pal_rows) - 1))
 
         self.palette_update_file_controls()
 
@@ -2062,14 +2078,14 @@ class SpriteEditor(QtW.QWidget):
         # Sum the values of all active line combo boxes
         total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
 
-        # Disable New button if we reach the 4-line limit
-        is_full = (total_lines >= 4)
-        self.btn_pal_add.setDisabled(is_full)
+        # Enable/Disable buttons accordingly
+        count = len(self.pal_rows)
+        selected_row = self.pal_file_table.currentRow()
 
-        # Load/Save are only enabled when we have palette filepaths in the system
-        has_rows = len(self.pal_rows) > 0
-        self.btn_pal_load.setEnabled(has_rows)
-        self.btn_pal_save.setEnabled(has_rows)
+        self.btn_pal_add.setEnabled(total_lines < 4)
+        self.btn_pal_load.setEnabled(count > 0)
+        self.btn_pal_save.setEnabled(count > 0)
+        self.btn_pal_remove.setEnabled(0 <= selected_row < count)
 
         # Dynamically restrict each dropdown so the user can't select a value that exceeds 4
         for combo in self.pal_line_combos:
