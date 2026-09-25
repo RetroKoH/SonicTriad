@@ -1532,7 +1532,7 @@ class SpriteEditor(QtW.QWidget):
         # Display the accepted name, or restore the previous one
         self.sprite_refresh_frame_name()
 
-        self.sprite_refresh_frame_list()
+        self.framelist_refresh()
 
     def sprite_refresh_frame_name(self):
         frame_index = self.frame_spinbox.value()
@@ -2172,13 +2172,21 @@ class SpriteEditor(QtW.QWidget):
                 preview = QPixmap(frame_list.iconSize())
                 preview.fill(Qt.GlobalColor.transparent)
 
+                # Center the thumbnail inside its fixed-size preview box
+                _tx = (preview.width() - thumbnail.width()) // 2
+                _ty = (preview.height() - thumbnail.height()) // 2
+
                 # Draw the frame thumbnail
                 painter = QPainter(preview)
-                painter.drawImage(
-                    (preview.width() - thumbnail.width()) // 2,
-                    (preview.height() - thumbnail.height()) // 2,
-                    thumbnail,
-                )
+                painter.drawImage(_tx, _ty, thumbnail)
+
+                # Outline the sprite bounds, including the crop margin
+                if pieces and not bounds.isEmpty():
+                    painter.setPen(QColor(150, 150, 150))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(_tx, _ty,
+                        thumbnail.width() - 1, thumbnail.height() - 1)
+
                 painter.end()
 
                 # Set mapping frame as icon
