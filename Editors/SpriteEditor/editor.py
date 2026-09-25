@@ -37,8 +37,11 @@ class SpriteEditor(QtW.QWidget):
         self.pal_rows = []  # Stores (path_input, line_combo) for palette loading
         self.pal_line_combos = []
 
-        # VRAM art tile structure
+        # VRAM art tile structure (Dynamic art_tile structures are loaded into this structure)
         self.vram_tiles = {}
+
+        # Individual art tile structures (Create dynamically for each row in self.art_rows)
+        # This is done in art_add_entry
 
         # Used in the art file manager
         self.art_rows = []  # Stores row items in the table for art loading
@@ -879,13 +882,14 @@ class SpriteEditor(QtW.QWidget):
         # Save Art files as they are stored in the File Manager
         if self.art_rows:
             new_art = []
-            for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
+            for path_input, comp_combo, offset_spin, count_spin, art_tiles in self.art_rows:
                 p_text = path_input.text().strip()
                 if p_text:
                     new_art.append({
                         "path": make_relative(p_text),
                         "compression": comp_combo.currentText(),
-                        "offset": offset_spin.value()
+                        "offset": offset_spin.value(),
+                        "count": count_spin.value()
                     })
             sprite_data["art"] = new_art
 
@@ -1069,10 +1073,10 @@ class SpriteEditor(QtW.QWidget):
             self.art_add_entry(resolve_path_str(raw_path))
 
             # New row at the end of the list
-            path_input, comp_combo, offset_spin, count_spin = self.art_rows[-1]
+            path_input, comp_combo, offset_spin, count_spin, art_tiles = self.art_rows[-1]
             offset_spin.setValue(art.get("offset", 0))
             comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
-            count_spin.setValue(0)  # Load all tiles by default
+            count_spin.setValue(art.get("count", 0))  # Load all tiles by default
 
         # Fill out mapping data
         mappings = sprite_data.get("mappings", {})
@@ -1247,7 +1251,11 @@ class SpriteEditor(QtW.QWidget):
         for box in self.palette_boxes:
             box.set_color(black)
 
-        # Flush out VRAM (art tiles)
+        # Clear Art Tiles
+        for _, _, _, _, art_tiles in self.art_rows:
+            art_tiles.clear()
+
+        # Flush out VRAM
         self.vram_tiles.clear()
 
         # Clear Sprite mappings and labels
@@ -1839,12 +1847,12 @@ class SpriteEditor(QtW.QWidget):
             self.art_add_entry(file_path)
 
     def art_entry_load(self):
-        """Loads art tile data from the filepath(s) specified into virtual VRAM storage"""
-        # Flush out VRAM
-        self.vram_tiles.clear()
-
+        """Loads art tile data from the filepath specified into its own dedicated buffer"""
         # Loop for each filepath added
-        for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
+        for path_input, comp_combo, offset_spin, count_spin, art_tiles in self.art_rows:
+            # Flush out buffer
+            art_tiles.clear()
+
             file_path_str = path_input.text().strip()
             if not file_path_str:
                 continue
@@ -1854,9 +1862,6 @@ class SpriteEditor(QtW.QWidget):
             if not path.exists():
                 print(f"Art file not found: {path}")
                 continue
-
-            # Starting VRAM tile index (0 to 2047) from the hex spinbox
-            current_tile_idx = offset_spin.value()
 
             # Raw Binary art file (8x8 = 64px = 32 bytes per tile)
             try:
@@ -1876,22 +1881,17 @@ class SpriteEditor(QtW.QWidget):
                     elif compression != "Uncompressed":
                         raise ValueError(f"Unsupported art compression format: {compression}")
 
-                # Each 8x8 tile is 32 bytes (64 pixels at 4 bits per pixel)
+                # To-Do: This will be a warning, not an exception
+                if len(raw_data) % 32:
+                    raise ValueError("Decompressed art size must be a multiple of 32 bytes.")
+
+                # If the user still wishes to load, excess bytes will be dropped
                 tile_count = len(raw_data) // 32
-                user_count = count_spin.value()
+                loaded_tiles = []
 
-                # Set load count (if 0, all tiles will be loaded)
-                if user_count == 0:
-                    tiles_to_load = tile_count
-                    # Move this to after the loading. If we hit 2048, we must truncate this count
-                    count_spin.blockSignals(True)
-                    count_spin.setValue(tile_count)
-                    count_spin.blockSignals(False)
-                else:
-                    tiles_to_load = min(user_count, tile_count)     # User-defined load count
-
-                for _t in range(tiles_to_load):
-                    tile_bytes = raw_data[_t * 32: (_t + 1) * 32]
+                for tile_index in range(tile_count):
+                    start = tile_index * 32
+                    tile_bytes = raw_data[start:start + 32]
                     pixel_indices = []
 
                     # Unpack 32 bytes into 64 palette indices (high nibble first)
@@ -1899,10 +1899,11 @@ class SpriteEditor(QtW.QWidget):
                         pixel_indices.append((byte >> 4) & 0x0F)  # Left pixel
                         pixel_indices.append(byte & 0x0F)  # Right pixel
 
-                    # Slot tile into virtual VRAM storage
-                    target_idx = current_tile_idx + _t
-                    if target_idx < 2048:
-                        self.vram_tiles[target_idx] = pixel_indices
+                    # Slot tile into buffer storage
+                    loaded_tiles.append(pixel_indices)
+
+                # Store loaded tiles into the buffer
+                art_tiles.extend(loaded_tiles)
 
             except Exception as e:
                 print(f"Error loading art file {path.name}: {e}")
@@ -1911,43 +1912,23 @@ class SpriteEditor(QtW.QWidget):
                 )
 
         # Refresh VRAM after loading art
-        self.render_art_tiles()
-        # Refresh frame window
-        self.render_sprite_frame()
+        self.art_refresh_vram()
 
     def art_entry_save(self):
-        for path_input, comp_combo, offset_spin, count_spin in self.art_rows:
+        for path_input, comp_combo, offset_spin, count_spin, art_tiles in self.art_rows:
             file_path_str = path_input.text().strip()
-            if not file_path_str:
-                continue
-
-            user_count = count_spin.value()
-            # If count is 0, don't save and check the next art file
-            if user_count == 0:
+            if not file_path_str or not art_tiles:
                 continue
 
             path = Path(file_path_str)
-            current_tile_idx = offset_spin.value()
-            max_limit = 2048
-
             art_data = bytearray()
-            tile_idx = current_tile_idx
-            tiles_saved = 0
 
-            # Collect tiles for this entry, up to requested tile count
-            while tile_idx < max_limit and tile_idx in self.vram_tiles and tiles_saved < user_count:
-                pixels = self.vram_tiles[tile_idx]
-
-                # Pack 64 pixel indices into 32 bytes
+            # Save this file's art data (64 pixel indices into 32 bytes)
+            for pixels in art_tiles:
                 for i in range(0, 64, 2):
                     left_pixel = pixels[i] & 0x0F
                     right_pixel = pixels[i + 1] & 0x0F
-                    byte_val = (left_pixel << 4) | right_pixel
-                    art_data.append(byte_val)
-
-                # Increment tile
-                tile_idx += 1
-                tiles_saved += 1
+                    art_data.append((left_pixel << 4) | right_pixel)
 
             # If there is no art data to save, move on to the next file
             if not art_data:
@@ -2004,13 +1985,18 @@ class SpriteEditor(QtW.QWidget):
         artloc_spin.setPrefix("$")
 
         count_spin = QtW.QSpinBox()
-        count_spin.setRange(0, 2047)  # Cap at 2048 tiles
-        count_spin.setToolTip("Number of Tiles" +
-                              "Load: Number to load (0 to load all).\n" +
-                              "Save: Number to save.")
+        count_spin.setRange(0, 2048)  # Cap at 2048 tiles (Max possible in VRAM)
+        count_spin.setSpecialValueText("All")
+        count_spin.setToolTip(
+            "Number of source tiles to load into VRAM.\n"
+            "0 to load all tiles that fit."
+        )
+
+        # Each entry has its own art_tile structure
+        art_tiles = []
 
         # Store elements
-        row_data = (path_input, comp_combo, artloc_spin, count_spin)
+        row_data = (path_input, comp_combo, artloc_spin, count_spin, art_tiles)
         self.art_rows.append(row_data)
 
         # Add and assemble a table row
@@ -2028,6 +2014,9 @@ class SpriteEditor(QtW.QWidget):
         # Initial evaluation
         self.art_update_file_controls()
 
+        artloc_spin.valueChanged.connect(self.art_refresh_vram)
+        count_spin.valueChanged.connect(self.art_refresh_vram)
+
     def art_remove_entry(self, row=None):
         if row is None:
             row = self.art_file_table.currentRow()
@@ -2043,6 +2032,7 @@ class SpriteEditor(QtW.QWidget):
             self.art_file_table.selectRow(min(row, len(self.art_rows) - 1))
 
         self.art_update_file_controls()
+        self.art_refresh_vram()
 
     def art_update_file_controls(self):
         count = len(self.art_rows)
@@ -2054,6 +2044,26 @@ class SpriteEditor(QtW.QWidget):
         self.btn_art_save.setEnabled(count > 0)
         self.btn_art_remove.setEnabled(0 <= selected_row < count)
 
+    def art_refresh_vram(self):
+        """Load each file's source tiles into VRAM"""
+        self.vram_tiles.clear()
+
+        for _, _, offset_spin, count_spin, art_tiles in self.art_rows:
+            start = offset_spin.value()
+            requested_count = count_spin.value()
+
+            # If count == 0, load all tiles that will fit into VRAM
+            if requested_count == 0:
+                requested_count = len(art_tiles)
+
+            preview_count = min(requested_count, len(art_tiles), 2048 - start)
+
+            # Copy from source to VRAM
+            for source_index in range(preview_count):
+                self.vram_tiles[start + source_index] = (art_tiles[source_index].copy())
+
+        self.render_art_tiles()
+        self.render_sprite_frame()
 
     # --------------------------------------------------
     # Mapping File Entries
