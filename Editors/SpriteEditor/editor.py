@@ -517,13 +517,13 @@ class SpriteEditor(QtW.QWidget):
         frame_buttons = QtW.QHBoxLayout()
         frame_buttons.setSpacing(4)
 
-        self.btn_piece_add = create_pushbutton("Add Frame",
+        self.btn_frame_add = create_pushbutton("Add Frame",
             tooltip="Add a frame",
             on_clicked=self.sprite_add_frame,
-            enabled=False, layout=frame_buttons
+            enabled=True, layout=frame_buttons
         )
 
-        self.btn_piece_remove = create_pushbutton("Remove Frame",
+        self.btn_frame_remove = create_pushbutton("Remove Frame",
             width=85, tooltip="Remove the current frame",
             on_clicked=self.sprite_remove_frame,
             enabled=False, layout=frame_buttons
@@ -1182,10 +1182,59 @@ class SpriteEditor(QtW.QWidget):
         self.render_sprite_frame()
 
     def sprite_add_frame(self):
-        pass
+        # Commit any pending name edit before changing frames
+        self.on_sprite_frame_label_changed()
+
+        new_index = len(self.map_frames)
+
+        # Assign a default name
+        name_number = new_index
+        name = f"Frame_{name_number}"
+
+        while name in self.frame_labels:
+            name_number += 1
+            name = f"Frame_{name_number}"
+
+        # Keep frame data and names aligned
+        self.map_frames.append([])
+        self.frame_labels.append(name)
+
+        # Update the range and selection together, then refresh
+        was_blocked = self.frame_spinbox.blockSignals(True)
+        try:
+            self.frame_spinbox.setRange(0, new_index)
+            self.frame_spinbox.setValue(new_index)
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self.on_sprite_frame_changed()
 
     def sprite_remove_frame(self):
-        pass
+        frame_index = self.frame_spinbox.value()
+
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            return
+
+        # Keep frame data and names aligned
+        del self.map_frames[frame_index]
+        del self.frame_labels[frame_index]
+
+        last_index = max(0, len(self.map_frames) - 1)
+        next_index = min(frame_index, last_index)
+
+        was_blocked = self.frame_spinbox.blockSignals(True)
+        try:
+            self.frame_spinbox.setRange(0, last_index)
+            self.frame_spinbox.setValue(next_index)
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self.on_sprite_frame_changed()
 
     def sprite_clear_data(self):
         """Clear loaded assets and reset previews, keeping file-manager entries."""
@@ -1581,6 +1630,11 @@ class SpriteEditor(QtW.QWidget):
 
         self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
         self.btn_piece_remove.setEnabled(bool(selected))
+
+        self.btn_frame_remove.setEnabled(
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        )
 
         # Include selection identity and property values
         state = (
