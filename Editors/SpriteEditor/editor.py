@@ -3,8 +3,8 @@ from pathlib import Path
 from copy import deepcopy
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt, QEvent, QPoint, QRect
-from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter
+from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QSize
+from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter, QIcon
 
 from UI.widgets import (
     create_combobox,
@@ -43,6 +43,9 @@ class SpriteEditor(QtW.QWidget):
 
         # Individual art tile structures (Create dynamically for each row in self.art_rows)
         # This is done in art_add_entry
+
+        # Tells the sprite map list when sprite data changes
+        self.art_preview_revision = 0
 
         # Used in the art file manager
         self.art_rows = []  # Stores row items in the table for art loading
@@ -131,13 +134,13 @@ class SpriteEditor(QtW.QWidget):
         sprite_layout = QtW.QVBoxLayout(sprite_panel)
         sprite_layout.setContentsMargins(0, 0, 0, 0)
 
-        sprite_layout.addWidget(self.ui_build_sprite_viewer(), stretch=2)
+        sprite_layout.addWidget(self.ui_build_frame_viewer(), stretch=2)
         sprite_layout.addWidget(self.ui_build_file_manager(), stretch=1)
         return sprite_panel
 
-    def ui_build_sprite_viewer(self):
-        # Sprite Viewer
-        sprite_box = QtW.QGroupBox("Sprite Viewer")
+    def ui_build_frame_viewer(self):
+        # Sprite Frame Viewer
+        sprite_box = QtW.QGroupBox("Sprite Viewer") # This is now a slight misnomer, but that's ok.
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
 
         # Selection controls
@@ -442,10 +445,16 @@ class SpriteEditor(QtW.QWidget):
         # Art: existing VRAM viewer and preview palette selector
         self.editing_tabs.addTab(self.ui_build_art_viewer(), "Art")
 
+        # Sprites: View compiled sprite frames (click to select; drag to re-order them)
+        self.editing_tabs.addTab(self.ui_build_sprite_viewer(), "Sprites")
+
         # Mappings: empty space for future editing controls
-        self.editing_tabs.addTab(self.ui_build_map_editor(), "Mappings")
+        self.editing_tabs.addTab(self.ui_build_map_editor(), "Mapping Data")
 
         editing_layout.addWidget(self.editing_tabs, stretch=2)
+
+        self.editing_tabs.currentChanged.connect(self.sprite_refresh_frame_list)
+
         return editing_panel
 
     def ui_build_palette_preview(self):
@@ -496,6 +505,34 @@ class SpriteEditor(QtW.QWidget):
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         return self.vram_box
+
+    def ui_build_sprite_viewer(self):
+        self.sprite_frame_list = QtW.QListWidget()
+        self.frame_thumbnail_keys = []
+
+        frame_list = self.sprite_frame_list
+
+        frame_list.setViewMode(QtW.QListView.ViewMode.IconMode)
+        frame_list.setFlow(QtW.QListView.Flow.TopToBottom)
+        frame_list.setWrapping(False)
+        frame_list.setMovement(QtW.QListView.Movement.Static)
+        frame_list.setResizeMode(QtW.QListView.ResizeMode.Adjust)
+
+        # Thumbnail size
+        frame_list.setIconSize(QSize(192, 192))
+        frame_list.setGridSize(QSize(208, 224))
+        frame_list.setUniformItemSizes(False)
+        frame_list.setWordWrap(False)
+
+        frame_list.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
+        frame_list.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
+        frame_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        frame_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+
+        frame_list.currentRowChanged.connect(self.on_sprite_frame_list_selection_changed)
+
+        frame_list.viewport().installEventFilter(self)
+        return frame_list
 
     def ui_build_map_editor(self):
         self.map_edit_box = QtW.QGroupBox()
@@ -1447,6 +1484,8 @@ class SpriteEditor(QtW.QWidget):
         # Display the accepted name, or restore the previous one
         self.sprite_refresh_frame_name()
 
+        self.sprite_refresh_frame_list()
+
     def sprite_refresh_frame_name(self):
         frame_index = self.frame_spinbox.value()
         has_frame = (
@@ -1807,7 +1846,284 @@ class SpriteEditor(QtW.QWidget):
         if changed:
             self.render_sprite_frame()
 
+    def sprite_build_frame_image(self, frame_idx, show_overlays=False):
+        # 256x256 canvas with the center representing the sprite's X/Y origin pivot
+        canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
+        center_x, center_y = canvas_w // 2, canvas_h // 2
+
+        image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        if show_overlays:
+            # Draw an origin crosshair to easily see the sprite's anchor pivot
+            crosshair_color = QColor(255, 0, 255, 100)  # To-Do: Make this an option (ColorPicker)
+            for _x in range(canvas_w):
+                image.setPixelColor(_x, center_y, crosshair_color)
+            for _y in range(canvas_h):
+                image.setPixelColor(center_x, _y, crosshair_color)
+
+        if not 0 <= frame_idx < len(self.map_frames):
+            return image
+
+        # Get starting VRAM tile location (base location that start_tile + tile_offset will go off from)
+        tile_idx = self.vram_spinbox.value()
+        # Get base palette line (sprite mappings offset this, and the value wraps (0 to 3)
+        pal_idx = self.sprpal_spinbox.value()
+
+        frame_data = self.map_frames[frame_idx]
+
+        # Iterate over every piece in this frame
+        for piece_index, piece in enumerate(frame_data):
+            start_tile = (tile_idx + piece['tile']) & 2047
+            wid = piece['width']
+            hgt = piece['height']
+            px_offset = piece['x']
+            py_offset = piece['y']
+            pal_line = (pal_idx + piece['palette']) & 3
+            x_flip = piece['x_flip']
+            y_flip = piece['y_flip']
+
+            # Selected pieces never receive the hover effect
+            hovered = show_overlays and piece_index == self.hovered_piece and piece_index not in self.selected_pieces
+
+            if hovered:
+                target_image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
+                target_image.fill(Qt.GlobalColor.transparent)
+            else:
+                target_image = image
+
+            # Process tiles Top-to-Bottom, then Left-to-Right
+            for tx in range(wid):
+                for ty in range(hgt):
+                    tile_offset = (tx * hgt) + ty
+                    actual_tile_idx = start_tile + tile_offset
+
+                    # If flipped, the placement of the 8x8 blocks mirrors
+                    draw_tx = (wid - 1 - tx) if x_flip else tx
+                    draw_ty = (hgt - 1 - ty) if y_flip else ty
+
+                    if actual_tile_idx not in self.vram_tiles:
+                        continue
+
+                    pixel_indices = self.vram_tiles[actual_tile_idx]
+
+                    # Draw the 8x8 pixels for this specific tile (Should I pull from viewer instead?)
+                    for _py in range(8):
+                        for _px in range(8):
+                            p_val = pixel_indices[_py * 8 + _px]
+
+                            # 0 is always transparent (Make optional)
+                            if p_val == 0:
+                                continue
+
+                            # Flip the pixels within the 8x8 tile itself
+                            flip_px = (7 - _px) if x_flip else _px
+                            flip_py = (7 - _py) if y_flip else _py
+
+                            # Calculate absolute pixel coordinates on the canvas
+                            final_x = center_x + px_offset + (draw_tx * 8) + flip_px
+                            final_y = center_y + py_offset + (draw_ty * 8) + flip_py
+
+                            # Only draw if within bounds
+                            if 0 <= final_x < canvas_w and 0 <= final_y < canvas_h:
+                                color_idx = (pal_line * 16) + p_val
+                                if color_idx < len(self.palette_colors):
+                                    target_image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
+
+            # Composite this piece before rendering the next piece
+            if hovered:
+                painter = QPainter(image)
+
+                # Barely visible yellow background across the piece bounds
+                painter.fillRect(center_x + px_offset, center_y + py_offset,
+                                 wid * 8, hgt * 8, QColor(255, 255, 0, 18))  # 18 = yellow BG alpha
+
+                # Render piece partially transparent
+                painter.setOpacity(0.45)  # overall piece transparency
+                painter.drawImage(0, 0, target_image)
+                painter.end()
+
+        # Draw selection outlines after all sprite pieces
+        if show_overlays and self.selected_pieces:
+            painter = QPainter(image)
+            painter.setPen(QColor(255, 255, 0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            for index in sorted(self.selected_pieces):
+                if not 0 <= index < len(frame_data):
+                    continue
+
+                piece = frame_data[index]
+
+                painter.drawRect(
+                    center_x + piece["x"],
+                    center_y + piece["y"],
+                    piece["width"] * 8 - 1,
+                    piece["height"] * 8 - 1,
+                )
+
+            painter.end()
+
+        return image
+
+    def sprite_refresh_frame_list(self):
+        if not hasattr(self, "sprite_frame_list"):
+            return
+
+        frame_list = self.sprite_frame_list
+
+        # Refresh when the Sprites list tab is open
+        if self.editing_tabs.currentWidget() is not frame_list:
+            return
+
+        fields = ("x", "y", "tile", "width", "height",
+            "palette", "x_flip", "y_flip", "priority")
+
+        shared_key = (
+            self.art_preview_revision,
+            self.vram_spinbox.value(),
+            self.sprpal_spinbox.value(),
+            tuple(color.rgba() for color in self.palette_colors),
+            self.sprite_canvas_width,
+            self.sprite_canvas_height,
+        )
+
+        was_blocked = frame_list.blockSignals(True)
+
+        try:
+            # Rebuild the entries when frames are added or removed.
+            if frame_list.count() != len(self.map_frames):
+                frame_list.clear()
+                self.frame_thumbnail_keys = [None] * len(self.map_frames)
+
+                for _ in self.map_frames:
+                    # Add to the list, center-aligned
+                    item = QtW.QListWidgetItem()
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+                    frame_list.addItem(item)
+
+                self.sprite_resize_frame_list()
+
+            for index, pieces in enumerate(self.map_frames):
+                item = frame_list.item(index)
+
+                name = (
+                    self.frame_labels[index]
+                    if index < len(self.frame_labels)
+                    else f"Frame_{index}"
+                )
+                text = f"{index}: {name}"
+
+                if item.text() != text:
+                    item.setText(text)
+                    item.setToolTip(text)
+
+                frame_key = tuple(
+                    tuple(piece.get(field) for field in fields)
+                    for piece in pieces
+                )
+                thumbnail_key = (shared_key, frame_key)
+
+                if self.frame_thumbnail_keys[index] == thumbnail_key:
+                    continue
+
+                image = self.sprite_build_frame_image(index)
+
+                # Find the rectangle occupied by this frame's pieces
+                bounds = QRect()
+                center_x = self.sprite_canvas_width // 2
+                center_y = self.sprite_canvas_height // 2
+
+                for piece in pieces:
+                    piece_rect = QRect(
+                        center_x + piece["x"],
+                        center_y + piece["y"],
+                        piece["width"] * 8,
+                        piece["height"] * 8,
+                    )
+                    bounds = bounds.united(piece_rect)
+
+                if not bounds.isEmpty():
+                    # Include a small margin and stay within the rendered image
+                    bounds = bounds.adjusted(-2, -2, 2, 2)
+                    bounds = bounds.intersected(image.rect())
+
+                    if not bounds.isEmpty():
+                        image = image.copy(bounds)
+
+                # Enlarge to 2x, reducing only when necessary to fit the icon
+                thumbnail = image.scaled(
+                    min(image.width() * 2, frame_list.iconSize().width()),
+                    min(image.height() * 2, frame_list.iconSize().height()),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.FastTransformation,
+                )
+
+                # Fixed-size image area, with sprite frame centered inside
+                preview = QPixmap(frame_list.iconSize())
+                preview.fill(Qt.GlobalColor.transparent)
+
+                # Draw the frame thumbnail
+                painter = QPainter(preview)
+                painter.drawImage(
+                    (preview.width() - thumbnail.width()) // 2,
+                    (preview.height() - thumbnail.height()) // 2,
+                    thumbnail,
+                )
+                painter.end()
+
+                # Set mapping frame as icon
+                item.setIcon(QIcon(preview))
+                self.frame_thumbnail_keys[index] = thumbnail_key
+
+            selected_row = (self.frame_spinbox.value() if self.map_frames else -1)
+
+            if frame_list.currentRow() != selected_row:
+                frame_list.setCurrentRow(selected_row)
+
+                if selected_row >= 0:
+                    frame_list.scrollToItem(frame_list.item(selected_row))
+
+        finally:
+            frame_list.blockSignals(was_blocked)
+
+    def on_sprite_frame_list_selection_changed(self, row):
+        if not 0 <= row < len(self.map_frames):
+            return
+
+        self.frame_spinbox.setValue(row)
+
+    def sprite_resize_frame_list(self):
+        frame_list = self.sprite_frame_list
+
+        # Establish thumbnail and caption height
+        image_height = frame_list.iconSize().height()
+        caption_height = frame_list.fontMetrics().height() + 8
+
+        # Set size
+        item_size = QSize(
+            max(1, frame_list.viewport().width()),
+            image_height + caption_height,
+        )
+
+        if frame_list.gridSize() != item_size:
+            frame_list.setGridSize(item_size)
+
+        for index in range(frame_list.count()):
+            item = frame_list.item(index)
+
+            if item.sizeHint() != item_size:
+                item.setSizeHint(item_size)
+
     def eventFilter(self, a0, a1):
+        # For sprite frame list when resizing
+        if (
+            hasattr(self, "sprite_frame_list")
+            and a0 is self.sprite_frame_list.viewport()
+            and a1.type() == QEvent.Type.Resize
+        ):
+            self.sprite_resize_frame_list()
+
         if a0 is self.sprite_label:
             event_type = a1.type()
 
@@ -2563,134 +2879,21 @@ class SpriteEditor(QtW.QWidget):
         self.vram_label.setPixmap(scaled_pixmap)
 
     def render_sprite_frame(self):
-        # Refresh edit controls whenever selection or data changes
-        self.sprite_refresh_piece_controls()
-
-        # 256x256 canvas with the center representing the sprite's X/Y origin pivot
-        canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
-        center_x, center_y = canvas_w // 2, canvas_h // 2
-
-        image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
-        image.fill(Qt.GlobalColor.transparent)
-
-        # Draw an origin crosshair to easily see the sprite's anchor pivot
-        crosshair_color = QColor(255, 0, 255, 100)      # Make this an option (ColorPicker)
-        for _x in range(canvas_w): image.setPixelColor(_x, center_y, crosshair_color)
-        for _y in range(canvas_h): image.setPixelColor(center_x, _y, crosshair_color)
+        self.frame_spinbox.setRange(0, max(0, len(self.map_frames) - 1))
 
         if not self.map_frames:
             self.sprite_clear_selection()
-            self.frame_spinbox.setRange(0, 0)
-            self.render_sprite_image(image)
-            return
 
-        # Cap the spinbox to the number of loaded frames
-        self.frame_spinbox.setMaximum(len(self.map_frames) - 1)
-        frame_idx = self.frame_spinbox.value()
+        self.sprite_refresh_piece_controls()
 
-        # Get starting VRAM tile location (base location that start_tile + tile_offset will go off from)
-        tile_idx = self.vram_spinbox.value()
-        # Get base palette line (sprite mappings offset this, and the value wraps (0 to 3)
-        pal_idx = self.sprpal_spinbox.value()
-
-        if frame_idx >= len(self.map_frames):
-            return
-
-        frame_data = self.map_frames[frame_idx]
-
-        # Iterate over every piece in this frame
-        for piece_index, piece in enumerate(frame_data):
-            start_tile = (tile_idx + piece['tile']) & 2047
-            wid = piece['width']
-            hgt = piece['height']
-            px_offset = piece['x']
-            py_offset = piece['y']
-            pal_line = (pal_idx + piece['palette']) & 3
-            x_flip = piece['x_flip']
-            y_flip = piece['y_flip']
-
-            # Selected pieces never receive the hover effect
-            hovered = piece_index == self.hovered_piece and piece_index not in self.selected_pieces
-
-            if hovered:
-                target_image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
-                target_image.fill(Qt.GlobalColor.transparent)
-            else:
-                target_image = image
-
-            # Process tiles Top-to-Bottom, then Left-to-Right
-            for tx in range(wid):
-                for ty in range(hgt):
-                    tile_offset = (tx * hgt) + ty
-                    actual_tile_idx = start_tile + tile_offset
-
-                    # If flipped, the placement of the 8x8 blocks mirrors
-                    draw_tx = (wid - 1 - tx) if x_flip else tx
-                    draw_ty = (hgt - 1 - ty) if y_flip else ty
-
-                    if actual_tile_idx not in self.vram_tiles:
-                        continue
-
-                    pixel_indices = self.vram_tiles[actual_tile_idx]
-
-                    # Draw the 8x8 pixels for this specific tile (Should I pull from viewer instead?)
-                    for _py in range(8):
-                        for _px in range(8):
-                            p_val = pixel_indices[_py * 8 + _px]
-
-                            # 0 is always transparent (Make optional)
-                            if p_val == 0:
-                                continue
-
-                            # Flip the pixels within the 8x8 tile itself
-                            flip_px = (7 - _px) if x_flip else _px
-                            flip_py = (7 - _py) if y_flip else _py
-
-                            # Calculate absolute pixel coordinates on the canvas
-                            final_x = center_x + px_offset + (draw_tx * 8) + flip_px
-                            final_y = center_y + py_offset + (draw_ty * 8) + flip_py
-
-                            # Only draw if within bounds
-                            if 0 <= final_x < canvas_w and 0 <= final_y < canvas_h:
-                                color_idx = (pal_line * 16) + p_val
-                                if color_idx < len(self.palette_colors):
-                                    target_image.setPixelColor(final_x, final_y, self.palette_colors[color_idx])
-
-            # Composite this piece before rendering the next piece
-            if hovered:
-                painter = QPainter(image)
-
-                # Barely visible yellow background across the piece bounds
-                painter.fillRect(center_x + px_offset, center_y + py_offset,
-                    wid * 8, hgt * 8, QColor(255, 255, 0, 18))  # 18 = yellow BG alpha
-
-                # Render piece partially transparent
-                painter.setOpacity(0.45)    # overall piece transparency
-                painter.drawImage(0, 0, target_image)
-                painter.end()
-
-        # Draw selection outlines after all sprite pieces
-        if self.selected_pieces:
-            painter = QPainter(image)
-            painter.setPen(QColor(255, 255, 0))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-
-            for index in sorted(self.selected_pieces):
-                if not 0 <= index < len(frame_data):
-                    continue
-
-                piece = frame_data[index]
-
-                painter.drawRect(
-                    center_x + piece["x"],
-                    center_y + piece["y"],
-                    piece["width"] * 8 - 1,
-                    piece["height"] * 8 - 1,
-                )
-
-            painter.end()
+        # This calls what was originally 'render_sprite_frame()'
+        image = self.sprite_build_frame_image(
+            self.frame_spinbox.value(),
+            show_overlays=True,
+        )
 
         self.render_sprite_image(image)
+        self.sprite_refresh_frame_list()
 
     def render_sprite_image(self, image):
         pixmap = QPixmap.fromImage(image)
