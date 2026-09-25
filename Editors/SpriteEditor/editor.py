@@ -22,6 +22,7 @@ from PaletteEditor.editor import snap_to_md_colors, ColorLibraryDialog
 from PaletteEditor.color_box import MiniColorBox
 from SpriteEditor.map_loading import load_mappings
 from SpriteEditor.map_saving import save_mappings
+from SpriteEditor.frame_list import SpriteFrameList
 
 from Formats import compress, decompress
 
@@ -453,7 +454,7 @@ class SpriteEditor(QtW.QWidget):
 
         editing_layout.addWidget(self.editing_tabs, stretch=2)
 
-        self.editing_tabs.currentChanged.connect(self.sprite_refresh_frame_list)
+        self.editing_tabs.currentChanged.connect(self.framelist_refresh)
 
         return editing_panel
 
@@ -507,7 +508,7 @@ class SpriteEditor(QtW.QWidget):
         return self.vram_box
 
     def ui_build_sprite_viewer(self):
-        self.sprite_frame_list = QtW.QListWidget()
+        self.sprite_frame_list = SpriteFrameList()
         self.frame_thumbnail_keys = []
 
         frame_list = self.sprite_frame_list
@@ -515,7 +516,7 @@ class SpriteEditor(QtW.QWidget):
         frame_list.setViewMode(QtW.QListView.ViewMode.IconMode)
         frame_list.setFlow(QtW.QListView.Flow.TopToBottom)
         frame_list.setWrapping(False)
-        frame_list.setMovement(QtW.QListView.Movement.Static)
+        frame_list.setMovement(QtW.QListView.Movement.Snap)
         frame_list.setResizeMode(QtW.QListView.ResizeMode.Adjust)
 
         # Thumbnail size
@@ -529,7 +530,18 @@ class SpriteEditor(QtW.QWidget):
         frame_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         frame_list.setTextElideMode(Qt.TextElideMode.ElideRight)
 
-        frame_list.currentRowChanged.connect(self.on_sprite_frame_list_selection_changed)
+        # Establish drag-and-drop
+        frame_list.setSortingEnabled(False)
+        frame_list.setDragDropMode(QtW.QAbstractItemView.DragDropMode.InternalMove)
+        frame_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        frame_list.setDragEnabled(True)
+        frame_list.setAcceptDrops(True)
+        frame_list.setDragDropOverwriteMode(False)
+        frame_list.setAutoScroll(True)
+
+        frame_list.frameMoveRequested.connect(self.sprite_move_frame)
+
+        frame_list.currentRowChanged.connect(self.on_framelist_selection_changed)
 
         frame_list.viewport().installEventFilter(self)
         return frame_list
@@ -1312,6 +1324,42 @@ class SpriteEditor(QtW.QWidget):
         self.piece_controls_state = None
         self.on_sprite_frame_changed()
 
+    def sprite_move_frame(self, old_index, new_index):
+        frame_count = len(self.map_frames)
+
+        if not (
+            len(self.frame_labels) == frame_count
+            and 0 <= old_index < frame_count
+            and 0 <= new_index < frame_count
+        ):
+            return
+
+        if old_index == new_index:
+            return
+
+        # Commit a pending name edit before changing frame order
+        self.on_sprite_frame_label_changed()
+
+        frame = self.map_frames.pop(old_index)
+        name = self.frame_labels.pop(old_index)
+
+        self.map_frames.insert(new_index, frame)
+        self.frame_labels.insert(new_index, name)
+
+        # Entries were associated with the old indices
+        self.frame_thumbnail_keys = [None] * frame_count
+
+        was_blocked = self.frame_spinbox.blockSignals(True)
+
+        try:
+            self.frame_spinbox.setValue(new_index)
+
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self.on_sprite_frame_changed()
+
     def sprite_clear_data(self):
         """Clear loaded assets and reset previews, keeping file-manager entries."""
         # Clear sprite piece selection
@@ -1966,7 +2014,68 @@ class SpriteEditor(QtW.QWidget):
 
         return image
 
-    def sprite_refresh_frame_list(self):
+    def eventFilter(self, a0, a1):
+        # For sprite frame list when resizing
+        if (
+            hasattr(self, "sprite_frame_list")
+            and a0 is self.sprite_frame_list.viewport()
+            and a1.type() == QEvent.Type.Resize
+        ):
+            self.framelist_resize()
+
+        if a0 is self.sprite_label:
+            event_type = a1.type()
+
+            if event_type in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonDblClick
+            ):
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    # sprite_begin_drag redraws after changing selection
+                    self.sprite_update_hover(a1.position(), redraw=False)
+                    self.sprite_begin_drag(a1.position(), a1.modifiers())
+                    return True
+
+            elif event_type == QEvent.Type.MouseMove:
+                left_held = bool(
+                    a1.buttons() & Qt.MouseButton.LeftButton)
+
+                if left_held and self.selection_drag is not None:
+                    self.sprite_update_box_select(a1.position())
+
+                elif left_held and self.piece_drag is not None:
+                    self.sprite_drag_piece(a1.position())
+
+                else:
+                    self.piece_drag = None
+                    self.sprite_end_box_select()
+                    self.sprite_update_hover(a1.position())
+
+                return True
+
+            elif event_type == QEvent.Type.MouseButtonRelease:
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    if self.selection_drag is not None:
+                        self.sprite_update_box_select(a1.position())
+                        self.sprite_end_box_select()
+                    else:
+                        # Apply the final position before ending the drag
+                        self.sprite_drag_piece(a1.position())
+
+                    self.piece_drag = None
+                    self.sprite_update_hover(a1.position())
+                    return True
+
+            elif event_type == QEvent.Type.Leave:
+                # Clear hover, but let an active drag continue
+                self.sprite_update_hover()
+
+        return super().eventFilter(a0, a1)
+
+    # --------------------------------------------------
+    # Frame List Functions
+    # --------------------------------------------------
+    def framelist_refresh(self):
         if not hasattr(self, "sprite_frame_list"):
             return
 
@@ -2002,7 +2111,7 @@ class SpriteEditor(QtW.QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
                     frame_list.addItem(item)
 
-                self.sprite_resize_frame_list()
+                self.framelist_resize()
 
             for index, pieces in enumerate(self.map_frames):
                 item = frame_list.item(index)
@@ -2087,13 +2196,13 @@ class SpriteEditor(QtW.QWidget):
         finally:
             frame_list.blockSignals(was_blocked)
 
-    def on_sprite_frame_list_selection_changed(self, row):
+    def on_framelist_selection_changed(self, row):
         if not 0 <= row < len(self.map_frames):
             return
 
         self.frame_spinbox.setValue(row)
 
-    def sprite_resize_frame_list(self):
+    def framelist_resize(self):
         frame_list = self.sprite_frame_list
 
         # Establish thumbnail and caption height
@@ -2114,64 +2223,6 @@ class SpriteEditor(QtW.QWidget):
 
             if item.sizeHint() != item_size:
                 item.setSizeHint(item_size)
-
-    def eventFilter(self, a0, a1):
-        # For sprite frame list when resizing
-        if (
-            hasattr(self, "sprite_frame_list")
-            and a0 is self.sprite_frame_list.viewport()
-            and a1.type() == QEvent.Type.Resize
-        ):
-            self.sprite_resize_frame_list()
-
-        if a0 is self.sprite_label:
-            event_type = a1.type()
-
-            if event_type in (
-                QEvent.Type.MouseButtonPress,
-                QEvent.Type.MouseButtonDblClick
-            ):
-                if a1.button() == Qt.MouseButton.LeftButton:
-                    # sprite_begin_drag redraws after changing selection
-                    self.sprite_update_hover(a1.position(), redraw=False)
-                    self.sprite_begin_drag(a1.position(), a1.modifiers())
-                    return True
-
-            elif event_type == QEvent.Type.MouseMove:
-                left_held = bool(
-                    a1.buttons() & Qt.MouseButton.LeftButton)
-
-                if left_held and self.selection_drag is not None:
-                    self.sprite_update_box_select(a1.position())
-
-                elif left_held and self.piece_drag is not None:
-                    self.sprite_drag_piece(a1.position())
-
-                else:
-                    self.piece_drag = None
-                    self.sprite_end_box_select()
-                    self.sprite_update_hover(a1.position())
-
-                return True
-
-            elif event_type == QEvent.Type.MouseButtonRelease:
-                if a1.button() == Qt.MouseButton.LeftButton:
-                    if self.selection_drag is not None:
-                        self.sprite_update_box_select(a1.position())
-                        self.sprite_end_box_select()
-                    else:
-                        # Apply the final position before ending the drag
-                        self.sprite_drag_piece(a1.position())
-
-                    self.piece_drag = None
-                    self.sprite_update_hover(a1.position())
-                    return True
-
-            elif event_type == QEvent.Type.Leave:
-                # Clear hover, but let an active drag continue
-                self.sprite_update_hover()
-
-        return super().eventFilter(a0, a1)
 
 
     # --------------------------------------------------
@@ -2893,7 +2944,7 @@ class SpriteEditor(QtW.QWidget):
         )
 
         self.render_sprite_image(image)
-        self.sprite_refresh_frame_list()
+        self.framelist_refresh()
 
     def render_sprite_image(self, image):
         pixmap = QPixmap.fromImage(image)
