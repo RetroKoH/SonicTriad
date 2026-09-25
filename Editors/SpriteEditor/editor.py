@@ -519,13 +519,13 @@ class SpriteEditor(QtW.QWidget):
 
         self.btn_piece_add = create_pushbutton("Add Frame",
             tooltip="Add a frame",
-            #on_clicked=self.sprite_add_frame,
+            on_clicked=self.sprite_add_frame,
             enabled=False, layout=frame_buttons
         )
 
         self.btn_piece_remove = create_pushbutton("Remove Frame",
             width=85, tooltip="Remove the current frame",
-            #on_clicked=self.sprite_remove_frame,
+            on_clicked=self.sprite_remove_frame,
             enabled=False, layout=frame_buttons
         )
 
@@ -543,13 +543,13 @@ class SpriteEditor(QtW.QWidget):
 
         self.btn_piece_add = create_pushbutton("Add Piece",
             tooltip="Add a piece to the current frame",
-            #on_clicked=self.sprite_add_piece,
+            on_clicked=self.sprite_add_piece,
             enabled=False, layout=piece_buttons
         )
 
         self.btn_piece_remove = create_pushbutton("Remove Pieces",
             width=85, tooltip="Remove the selected pieces",
-            #on_clicked=self.sprite_remove_pieces,
+            on_clicked=self.sprite_remove_pieces,
             enabled=False, layout=piece_buttons
         )
 
@@ -1134,6 +1134,59 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     # Sprite Functions
     # --------------------------------------------------
+    # To-Do: make a visual menu appear with piece options
+    def sprite_add_piece(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not 0 <= frame_index < len(self.map_frames):
+            return
+
+        self.sprite_clear_selection()
+        pieces = self.map_frames[frame_index]
+
+        # For now, append a new 1×1 piece
+        pieces.append({
+            "x": 0,
+            "y": 0,
+            "tile": 0,
+            "width": 1,
+            "height": 1,
+            "palette": 0,
+            "x_flip": False,
+            "y_flip": False,
+            "priority": False,
+        })
+
+        # Select the new piece in both the list and viewer
+        new_index = len(pieces) - 1
+        self.selected_pieces = {new_index}
+        self.piece_controls_state = None
+
+        self.render_sprite_frame()
+        self.piece_list_table.scrollToItem(self.piece_list_table.item(new_index, 0))
+
+    def sprite_remove_pieces(self):
+        selected = self.sprite_get_selected_pieces()
+
+        if not selected:
+            return
+
+        pieces = self.map_frames[self.frame_spinbox.value()]
+
+        # Delete backward so earlier indices remain valid.
+        for index, _ in reversed(selected):
+            del pieces[index]
+
+        self.piece_controls_state = None
+        self.sprite_clear_selection()
+        self.render_sprite_frame()
+
+    def sprite_add_frame(self):
+        pass
+
+    def sprite_remove_frame(self):
+        pass
+
     def sprite_clear_data(self):
         """Clear loaded assets and reset previews, keeping file-manager entries."""
         # Clear sprite piece selection
@@ -1522,6 +1575,12 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_refresh_piece_list()
 
         selected = self.sprite_get_selected_pieces()
+
+        # Update when buttons are enabled based on piece change
+        frame_index = self.frame_spinbox.value()
+
+        self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
+        self.btn_piece_remove.setEnabled(bool(selected))
 
         # Include selection identity and property values
         state = (
