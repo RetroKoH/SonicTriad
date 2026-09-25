@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from copy import deepcopy
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect
@@ -523,14 +524,17 @@ class SpriteEditor(QtW.QWidget):
         self.btn_frame_add = create_pushbutton("Add Frame",
             tooltip="Add a frame",
             on_clicked=self.sprite_add_frame,
-            enabled=True, layout=frame_buttons
-        )
+            enabled=True, layout=frame_buttons)
+
+        self.btn_frame_clone = create_pushbutton("Clone Frame",
+            width=85, tooltip="Duplicate the current mapping frame",
+            on_clicked=self.sprite_clone_frame,
+            enabled=False, layout=frame_buttons)
 
         self.btn_frame_remove = create_pushbutton("Remove Frame",
             width=85, tooltip="Remove the current frame",
             on_clicked=self.sprite_remove_frame,
-            enabled=False, layout=frame_buttons
-        )
+            enabled=False, layout=frame_buttons)
 
         frame_buttons.addStretch()
         map_editor.addLayout(frame_buttons)
@@ -1185,22 +1189,12 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_clear_selection()
         self.render_sprite_frame()
 
-    def sprite_add_frame(self):
-        # Commit any pending name edit before changing frames
-        self.on_sprite_frame_label_changed()
-
+    # Add Frame and Clone Frame call this function
+    def sprite_new_frame(self, name, pieces):
         new_index = len(self.map_frames)
 
-        # Assign a default name
-        name_number = new_index
-        name = f"Frame_{name_number}"
-
-        while name in self.frame_labels:
-            name_number += 1
-            name = f"Frame_{name_number}"
-
         # Keep frame data and names aligned
-        self.map_frames.append([])
+        self.map_frames.append(pieces)
         self.frame_labels.append(name)
 
         # Update the range and selection together, then refresh
@@ -1213,6 +1207,47 @@ class SpriteEditor(QtW.QWidget):
 
         self.piece_controls_state = None
         self.on_sprite_frame_changed()
+
+    def sprite_add_frame(self):
+        # Commit any pending name edit before changing frames
+        self.on_sprite_frame_label_changed()
+
+        # Assign a default name
+        name_number = len(self.map_frames)
+        name = f"Frame_{name_number}"
+
+        while name in self.frame_labels:
+            name_number += 1
+            name = f"Frame_{name_number}"
+
+        # Add brand new frame to sprite
+        self.sprite_new_frame(name, [])
+
+    def sprite_clone_frame(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            return
+
+        # Commit any pending name edit before changing frames
+        self.on_sprite_frame_label_changed()
+
+        # Find an unused copy name
+        base_name = f"{self.frame_labels[frame_index]}_Copy"
+        name = base_name
+        copy_number = 2
+
+        # Avoid duplicate ASM frame labels
+        while name in self.frame_labels:
+            name = f"{base_name}{copy_number}"
+            copy_number += 1
+
+        # Clone the frame and its pieces (not the art tiles)
+        pieces = deepcopy(self.map_frames[frame_index])
+        self.sprite_new_frame(name, pieces)
 
     def sprite_remove_frame(self):
         frame_index = self.frame_spinbox.value()
@@ -1639,10 +1674,12 @@ class SpriteEditor(QtW.QWidget):
         self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
         self.btn_piece_remove.setEnabled(bool(selected))
 
-        self.btn_frame_remove.setEnabled(
+        has_frames = (
             0 <= frame_index < len(self.map_frames)
             and frame_index < len(self.frame_labels)
         )
+        self.btn_frame_remove.setEnabled(has_frames)
+        self.btn_frame_clone.setEnabled(has_frames)
 
         # Include selection identity and property values
         state = (
