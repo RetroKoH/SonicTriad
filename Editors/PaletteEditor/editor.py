@@ -57,7 +57,10 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.project_palette_paths = []
 
+        # "Dirty flag" - Cleared if current state matches last saved state
         self._unsaved_changes = False
+        self._clean_palette_colors = [QColor(color) for color in self.palette_colors]
+
         self.current_dropdown_index = -1
 
         # Advanced Editing window handler
@@ -535,7 +538,7 @@ class PaletteEditor(QtW.QWidget):
         # Activate the created palette
         self.palette_set_colors(new_pal)
         self.proj_register_palette(path)
-        self.unsaved_changes = False
+        self.record_clean_palette()
 
         # Successful creation
         return True
@@ -623,7 +626,7 @@ class PaletteEditor(QtW.QWidget):
         # Activate the loaded palette
         self.palette_set_colors(loaded_colors)
         self.proj_register_palette(path)
-        self.unsaved_changes = False
+        self.record_clean_palette()
 
         # Successful load
         return True
@@ -642,7 +645,7 @@ class PaletteEditor(QtW.QWidget):
         if not self.file_pal_data_write(self.active_palette_path, self.palette_colors):
             return False
 
-        self.unsaved_changes = False
+        self.record_clean_palette()
         return True
 
     def file_palette_save_as(self):
@@ -724,7 +727,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Activate the newly saved palette
         self.proj_register_palette(path)
-        self.unsaved_changes = False
+        self.record_clean_palette()
 
         # Successful save
         return True
@@ -819,7 +822,7 @@ class PaletteEditor(QtW.QWidget):
         self.active_palette_path = None
         self.current_dropdown_index = -1
         self.palette_set_colors([QColor(0, 0, 0) for _ in range(64)])
-        self.unsaved_changes = False
+        self.record_clean_palette()
 
         # Refresh the dropdown and load the first remaining palette, if any
         self.proj_populate_pal_list(remaining_paths)
@@ -1013,7 +1016,7 @@ class PaletteEditor(QtW.QWidget):
             # Activate only after reading succeeds
             self.palette_set_colors(loaded_colors)
             self.proj_register_palette(path)
-            self.unsaved_changes = False
+            self.record_clean_palette()
 
         self.check_unsaved_changes(load_new_selection, revert_selection)
 
@@ -1077,6 +1080,18 @@ class PaletteEditor(QtW.QWidget):
         else:
             return "Cancel"
 
+    def record_clean_palette(self):
+        """
+        Record the current palette as the baseline for unsaved changes.
+        """
+        self._clean_palette_colors = [QColor(color) for color in self.palette_colors]
+        self.unsaved_changes = False
+
+    def update_unsaved_changes(self):
+        """
+        Update the unsaved flag by comparing colors with the clean baseline.
+        """
+        self.unsaved_changes = self.palette_colors != self._clean_palette_colors
 
     # --------------------------------------------------
     # Palette Data Grid
@@ -1279,7 +1294,7 @@ class PaletteEditor(QtW.QWidget):
             new_color = dialog.get_color()
             self.edit_set_active_color(new_color)
             self.palette_refresh_highlighting()
-            self.unsaved_changes = True
+            self.update_unsaved_changes()
 
     # RGB Slider function
     def on_rgb_sliders_changed(self):
@@ -1308,7 +1323,7 @@ class PaletteEditor(QtW.QWidget):
 
         self.edit_set_active_color(new_color)
 
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     # Color input edit function
     def on_hex_color_edited(self):
@@ -1330,7 +1345,7 @@ class PaletteEditor(QtW.QWidget):
             self.edit_set_active_color(snapped_color)
             self.palette_refresh_highlighting()
 
-            self.unsaved_changes = True
+            self.update_unsaved_changes()
 
 
     # --------------------------------------------------
@@ -1363,7 +1378,7 @@ class PaletteEditor(QtW.QWidget):
             self.palette_rebuild_grid(new_size)
             self.palette_refresh_highlighting()
 
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def edit_palette_shift(self, direction):
         # Do nothing if multiple colors aren't selected
@@ -1390,7 +1405,7 @@ class PaletteEditor(QtW.QWidget):
             self.boxes[idx].set_color(color)
 
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def edit_remove_colors(self, indices):
         self.history_push_state()  # Record state before removing color(s)
@@ -1424,7 +1439,7 @@ class PaletteEditor(QtW.QWidget):
         self.active_index = safe_index
         self.palette_refresh_highlighting()
 
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def edit_swap_colors(self, src_indices, target_start):
         if not src_indices:
@@ -1471,7 +1486,7 @@ class PaletteEditor(QtW.QWidget):
             self.selected_indices = dst_indices
 
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
         # Emit signal for open dialogs (Resizing shouldn't occur here though)
         self.palette_changed.emit()
@@ -1568,7 +1583,7 @@ class PaletteEditor(QtW.QWidget):
             self.boxes[idx].set_color(new_color)
 
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
 
     # --------------------------------------------------
@@ -1616,7 +1631,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_colors = new_colors
         self.palette_rebuild_grid()
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def adv_apply_gradient(self, gradient_colors):
         # Effect is only applied if the user selects "Apply"
@@ -1641,7 +1656,7 @@ class PaletteEditor(QtW.QWidget):
         self.active_index = start
 
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
 
     # --------------------------------------------------
@@ -1721,7 +1736,7 @@ class PaletteEditor(QtW.QWidget):
         # Refresh palette
         self.palette_rebuild_grid(start)
         self.palette_refresh_highlighting()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def clipboard_clear(self):
         self.clipboard_colors.clear()
@@ -1813,7 +1828,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_rebuild_grid()
         self.palette_refresh_highlighting()
         self.history_update()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def history_redo(self):
         if not self.redo_stack:
@@ -1829,7 +1844,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_rebuild_grid()
         self.palette_refresh_highlighting()
         self.history_update()
-        self.unsaved_changes = True
+        self.update_unsaved_changes()
 
     def history_push_state(self):
         # Snapshot current palette colors
