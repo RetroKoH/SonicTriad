@@ -39,6 +39,13 @@ class SpriteEditor(QtW.QWidget):
         self.pal_rows = []  # Stores (path_input, line_combo) for palette loading
         self.pal_line_combos = []
 
+        # File layout associated with the current palette buffer
+        # (None: buffer is not associated with any configured layout)
+        self.palette_buffer_layout = None
+
+        # Nonexistent destinations explicitly chosen through palette_entry_new()
+        self.palette_new_paths = set()
+
         # VRAM art tile structure (Dynamic art_tile structures are loaded into this structure)
         self.vram_tiles = {}
 
@@ -854,8 +861,8 @@ class SpriteEditor(QtW.QWidget):
 
         # File data is no longer filled out here (now done upon dropdown change)
         # Now the data is just loaded in when the button is pressed
-        if self.pal_rows:
-            self.palette_entry_load()
+        if self.pal_rows and not self.palette_entry_load():
+            return False
 
         if self.art_rows:
             self.art_entry_load()
@@ -889,8 +896,11 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.warning(self, "Save Error", f"Sprite '{sprite_name}' not found in project data.")
             return
 
-        # Save sprite assets
-        self.palette_entry_save()
+        # Save palette(s)
+        if not self.palette_entry_save():
+            return False
+
+        # Save art
         self.art_entry_save()
 
         if self.map_path_input.text().strip():
@@ -1155,7 +1165,12 @@ class SpriteEditor(QtW.QWidget):
     # File Manager
     # --------------------------------------------------
     def filemanager_clear(self):
-        """Remove file-manager entries without clearing loaded data or deleting files."""
+        """
+        Remove file-manager entries without clearing loaded data or deleting files.
+        """
+        self.palette_buffer_layout = None
+        self.palette_new_paths.clear()
+
         # Clean out Palette rows
         while self.pal_rows:
             self.palette_remove_entry(0)
@@ -1365,7 +1380,8 @@ class SpriteEditor(QtW.QWidget):
         # Clear sprite piece selection
         self.sprite_clear_selection()
 
-        # Clear palette to black
+        # Clear palette to black and invalidate file association
+        self.palette_buffer_layout = None
         black = QColor(0, 0, 0)
         self.palette_colors = [black for _i in range(64)]
         for box in self.palette_boxes:
@@ -2629,117 +2645,131 @@ class SpriteEditor(QtW.QWidget):
 
         # If successful, create a new row under the palette tab
         if file_path:
-            self.palette_add_entry(file_path)
+            path = Path(file_path).resolve()
+            previous_count = len(self.pal_rows)
+
+            self.palette_add_entry(str(path))
+
+            if len(self.pal_rows) > previous_count and not path.exists():
+                self.palette_new_paths.add(path)
 
     def palette_entry_load(self):
-        """Loads palette(s) from the filepath(s) specified into the palette grid"""
-        # Palette index to load the next color into
-        current_index = 0
+        """
+        Loads palette(s) from the filepath(s) specified into the palette grid.
+        (Added new files init to black)
 
-        # Loop for each filepath added
-        for path_input, line_combo in self.pal_rows:
-            file_path_str = path_input.text().strip()
-            if not file_path_str:
-                continue
+        Returns:
+            True if loading succeeded, False otherwise.
+        """
+        try:
+            layout = self.palette_get_file_layout()                 # (path, line count)
+            loaded_colors = [QColor(0, 0, 0) for _ in range(64)]    # Temp buffer of 64 colors
+            new_paths = self.palette_new_paths.copy()
+            current_index = 0                                       # Index to load the next color into
 
-            path = Path(file_path_str)
-            num_lines = int(line_combo.currentText() or "1")
+            for path, num_lines in layout:
+                # Number of colors to load based on number of lines in the entry
+                num_colors = num_lines * 16
 
-            # If the file doesn't exist, skip loading for this entry
-            if not path.exists():
-                current_index += num_lines * 16
-                continue
+                if path is not None:
+                    try:
+                        with open(path, "rb") as f:
+                            data = f.read(num_colors * 2)
 
-            # Number of colors to load based on number of lines in the entry
-            num_colors = num_lines * 16
+                    except FileNotFoundError:
+                        if path not in new_paths:
+                            raise
 
-            # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
-            try:
-                with open(path, "rb") as f:
-                    data = f.read(num_colors * 2)  # Read 2 bytes for every color loaded
-                    loaded_colors = []
-                    for _i in range(0, len(data), 2):
-                        if _i + 1 < len(data):
-                            val = (data[_i] << 8) | data[_i + 1]
+                    else:
+                        # Reject files shorter than their configured line count
+                        if len(data) != num_colors * 2:
+                            raise ValueError(
+                                f"{path.name}: expected {num_colors * 2} bytes, "
+                                f"but read {len(data)}."
+                            )
 
-                            # Extract 3-bit values (0-7)
-                            r_step = (val >> 1) & 0x07
-                            g_step = (val >> 5) & 0x07
-                            b_step = (val >> 9) & 0x07
+                        for _i in range(num_colors):
+                            val = (data[_i * 2] << 8) | data[_i * 2 + 1]
 
-                            # Map them directly to color values
-                            _r = MDCOLOR_VALUES[r_step]
-                            _g = MDCOLOR_VALUES[g_step]
-                            _b = MDCOLOR_VALUES[b_step]
+                            # Extract 3-bit values and map them to color values
+                            loaded_colors[current_index + _i] = QColor(
+                                MDCOLOR_VALUES[(val >> 1) & 7],
+                                MDCOLOR_VALUES[(val >> 5) & 7],
+                                MDCOLOR_VALUES[(val >> 9) & 7],
+                            )
 
-                            loaded_colors.append(QColor(_r, _g, _b))
+                        new_paths.discard(path)
 
-                    # Slot colors into the palette grid
-                    for _i, color in enumerate(loaded_colors):
-                        target_idx = current_index + _i
-                        if target_idx < len(self.palette_colors):
-                            self.palette_colors[target_idx] = color
+                # Blank paths still reserve their palette lines
+                current_index += num_colors
 
-            except Exception as e:
-                print(f"Error loading palette {path.name}: {e}")
-                QtW.QMessageBox.warning(
-                    self, "Palette Load Error", f"Could not load palette file {path.name}:\n{str(e)}"
-                )
+        except (OSError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Palette Load Error", str(e))
+            return False
 
-            # Increment color index for the next file load
-            current_index += num_colors
+        # Commit only after ALL configured entries has been prepared
+        self.palette_colors = loaded_colors
+        self.palette_buffer_layout = layout
+        self.palette_new_paths = new_paths
 
-        # Refresh the palette grid
-        for _i, color in enumerate(self.palette_colors):
-            if _i < len(self.palette_boxes):
-                self.palette_boxes[_i].set_color(color)
+        # Set color boxes to loaded colors
+        for box, color in zip(self.palette_boxes, self.palette_colors):
+            box.set_color(color)
 
-        # Refresh VRAM after loading new palette
-        self.render_art_tiles()
-        # Refresh frame window
-        self.render_sprite_frame()
+        self.render_art_tiles()     # Refresh VRAM
+        self.render_sprite_frame()  # Refresh frame window
+        return True
 
     def palette_entry_save(self):
         """
+        Validates the palette file association, and saves to disk if validated.
         Saves palette colors to the file(s) specified in the file manager.
 
         Returns:
             True if no saves failed (Also true if no files to save).
-            False if any save failed; Earlier saves may have been successful.
+            False if any save failed (File mismatch or write failure).
+                (Note: Earlier saves may have been successful if a later one fails)
         """
+        try:
+            layout = self.palette_get_file_layout()
+
+        except (OSError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Palette Save Error", str(e))
+            return False
+
+        if not any(path is not None for path, _ in layout):
+            return True
+
+        if layout != self.palette_buffer_layout:
+            QtW.QMessageBox.warning(
+                self, "Palette Save Error",
+                "Load the configured palettes before saving.\n"
+                "The current colors are not associated with these file entries."
+            )
+            return False
+
         current_index = 0
 
         # Iterate through all loaded palettes
-        for path_input, line_combo in self.pal_rows:
-            file_path_str = path_input.text().strip()
-            num_lines = int(line_combo.currentText() or "1")
+        for path, num_lines in layout:
             num_colors = num_lines * 16
 
-            # Skip palette rows with no destination file
-            if not file_path_str:
+            # Skip palette rows with no destination
+            if path is None:
                 current_index += num_colors
                 continue
-
-            path = Path(file_path_str)
 
             try:
                 # Store palette data into a buffer first
                 binary_data = bytearray()
 
-                for _i in range(num_colors):
-                    target_idx = current_index + _i
-
-                    if target_idx < len(self.palette_colors):
-                        color = self.palette_colors[target_idx]
-                    else:
-                        color = QColor(0, 0, 0)
-
+                for color in self.palette_colors[current_index:current_index + num_colors]:
                     # Convert color to compatible color components
                     _r = snap_to_md_colors(color.red())
                     _g = snap_to_md_colors(color.green())
                     _b = snap_to_md_colors(color.blue())
 
-                    # store in 0BGR format
+                    # Store in 0BGR format
                     binary_data.append(_b << 1)
                     binary_data.append((_g << 5) | (_r << 1))
 
@@ -2758,6 +2788,7 @@ class SpriteEditor(QtW.QWidget):
                 return False
 
             # Advance color index for the next row file
+            self.palette_new_paths.discard(path)
             current_index += num_colors
 
         # All saves successful
@@ -2898,6 +2929,51 @@ class SpriteEditor(QtW.QWidget):
             # Refresh frame window
             self.render_sprite_frame()
 
+    def palette_get_file_layout(self):
+        """
+        Get the configured palette layout in table order.
+
+        Returns:
+            Tuple: (absolute Path or None, line count) for each entry.
+            (Note: Blank paths reserve their configured palette lines.)
+        """
+        project_dir = getattr(self.window(), "project_root_dir", None)
+        layout = []
+        seen_paths = set()
+        total_lines = 0
+
+        # Validate line allocation
+        for path_input, line_combo in self.pal_rows:
+            num_lines = int(line_combo.currentText() or "1")
+            total_lines += num_lines
+
+            if not 1 <= num_lines <= 4 or total_lines > 4:
+                raise ValueError("Palette entries must fit within four lines.")
+
+            # Blank paths remain unassigned
+            path_text = path_input.text().strip()
+            path = None
+
+            if path_text:
+                path = Path(path_text)
+
+                if project_dir and not path.is_absolute():
+                    path = Path(project_dir) / path
+
+                # Resolve relative paths against the project root
+                path = path.resolve()
+
+                # Prevents writing to the same palette file twice from separate entries
+                if path in seen_paths:
+                    raise ValueError(f"Palette file listed more than once: {path}")
+
+                seen_paths.add(path)
+
+            # Preserve row order and reserved lines
+            layout.append((path, num_lines))
+
+        # Includes blank entries as they reserve palette lines
+        return tuple(layout)
 
     # --------------------------------------------------
     # Rendering
