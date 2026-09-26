@@ -886,17 +886,19 @@ class PaletteEditor(QtW.QWidget):
             False if writing failed.
         """
         binary_data = bytearray()
+
         for color in colors:
+            # Convert color to compatible color components
             _r = snap_to_md_colors(color.red())
             _g = snap_to_md_colors(color.green())
             _b = snap_to_md_colors(color.blue())
 
             # store in 0BGR format
-            binary_data.append((_b << 1) & 0xFF)
-            val = (_g << 5) | (_r << 1)
-            binary_data.append(val & 0xFF)
+            binary_data.append(_b << 1)
+            binary_data.append((_g << 5) | (_r << 1))
 
         try:
+            # Write binary data to file (creates file if it doesn't exist)
             with open(path, "wb") as f:
                 f.write(binary_data)
 

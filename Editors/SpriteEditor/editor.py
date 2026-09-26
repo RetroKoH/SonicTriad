@@ -2700,15 +2700,22 @@ class SpriteEditor(QtW.QWidget):
         self.render_sprite_frame()
 
     def palette_entry_save(self):
-        """Saves palette grid colors to the files specified in the file manager"""
+        """
+        Saves palette colors to the file(s) specified in the file manager.
+
+        Returns:
+            True if no saves failed (Also true if no files to save).
+            False if any save failed; Earlier saves may have been successful.
+        """
         current_index = 0
 
+        # Iterate through all loaded palettes
         for path_input, line_combo in self.pal_rows:
             file_path_str = path_input.text().strip()
             num_lines = int(line_combo.currentText() or "1")
             num_colors = num_lines * 16
 
-            # If a filepath is empty, skip those palette rows and advance color offset index
+            # Skip palette rows with no destination file
             if not file_path_str:
                 current_index += num_colors
                 continue
@@ -2716,12 +2723,12 @@ class SpriteEditor(QtW.QWidget):
             path = Path(file_path_str)
 
             try:
-                # Ensure parent directory of a new filepath exists
-                path.parent.mkdir(parents=True, exist_ok=True)
-
+                # Store palette data into a buffer first
                 binary_data = bytearray()
+
                 for _i in range(num_colors):
                     target_idx = current_index + _i
+
                     if target_idx < len(self.palette_colors):
                         color = self.palette_colors[target_idx]
                     else:
@@ -2733,21 +2740,28 @@ class SpriteEditor(QtW.QWidget):
                     _b = snap_to_md_colors(color.blue())
 
                     # store in 0BGR format
-                    binary_data.append((_b << 1) & 0xFF)
-                    val = (_g << 5) | (_r << 1)
-                    binary_data.append(val & 0xFF)
+                    binary_data.append(_b << 1)
+                    binary_data.append((_g << 5) | (_r << 1))
+
+                # Ensure parent directory of a new filepath exists
+                path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Write binary data to file (creates file if it doesn't exist)
                 with open(path, "wb") as f:
                     f.write(binary_data)
 
-            except Exception as e:
-                print(f"Error saving palette {path.name}: {e}")
-                QtW.QMessageBox.warning(self,
-                    "Save Error", f"Could not save palette file {path.name}:\n{str(e)}")
+            except (OSError, ValueError) as e:
+                QtW.QMessageBox.warning(
+                    self,"Palette Save Error",
+                    f"Could not save palette file {path.name}:\n{str(e)}"
+                )
+                return False
 
             # Advance color index for the next row file
             current_index += num_colors
+
+        # All saves successful
+        return True
 
     def palette_add_entry(self, file_path):
         # Each new file needs at least one available palette line.
