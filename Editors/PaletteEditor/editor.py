@@ -70,9 +70,12 @@ class PaletteEditor(QtW.QWidget):
     # UI Setup
     # --------------------------------------------------
     def ui_init(self):
+        """
+        Top-Level UI builder
+        """
         main_layout = QtW.QVBoxLayout(self)
 
-        # TOP PANEL: File Functions and Palette Selection
+        # TOP PANEL: File Toolbar
         main_layout.addLayout(self.ui_build_file_toolbar())
 
         palette_panel = self.ui_build_palette_panel()   # LEFT PANEL: Palette and Clipboard
@@ -85,10 +88,18 @@ class PaletteEditor(QtW.QWidget):
 
         # Build initial grid UI and set selection to color 0
         self.palette_set_colors(self.palette_colors)
+
+        # Initialize palette clipboard
         self.clipboard_refresh()
         self.btn_toggle_clipboard.setChecked(False)
 
     def ui_build_file_toolbar(self):
+        """
+        File toolbar constructor (Dropdown and file buttons)
+
+        Returns:
+            QtW.QHBoxLayout (file_toolbar; Contains ComboBox and PushButtons)
+        """
         file_toolbar = QtW.QHBoxLayout()
         file_toolbar.setSpacing(4)
         file_toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -117,6 +128,12 @@ class PaletteEditor(QtW.QWidget):
         return file_toolbar
 
     def ui_build_palette_panel(self):
+        """
+        Left-side panel constructor (Palette and Clipboard).
+
+        Returns:
+            QtW.QScrollArea (which contains the palette/clipboard group)
+        """
         # Palette Grid
         palette_group = QtW.QGroupBox("Palette")
         palette_layout = QtW.QVBoxLayout(palette_group)
@@ -210,9 +227,16 @@ class PaletteEditor(QtW.QWidget):
         return self.palette_splitter
 
     def ui_build_editing_panel(self):
+        """
+        Right-side panel constructor (Editing tools).
+
+        Returns:
+            QtW.QScrollArea (which contains the editing panel group)
+        """
         # Color Editing Tool
         control_group = QtW.QGroupBox("Color Editing")
         control_group.setObjectName("ControlsGroup")
+
         control_layout = QtW.QVBoxLayout(control_group)
         # Preserve the space required by the controls and their spacing
         control_layout.setSizeConstraint(QtW.QLayout.SizeConstraint.SetMinimumSize)
@@ -234,17 +258,17 @@ class PaletteEditor(QtW.QWidget):
 
         control_layout.addSpacing(15)
 
-        self.r_slider = self.create_step_slider(self.on_rgb_sliders_changed)
-        self.g_slider = self.create_step_slider(self.on_rgb_sliders_changed)
-        self.b_slider = self.create_step_slider(self.on_rgb_sliders_changed)
+        self.r_slider = self.create_rgb_slider(self.on_rgb_sliders_changed)
+        self.g_slider = self.create_rgb_slider(self.on_rgb_sliders_changed)
+        self.b_slider = self.create_rgb_slider(self.on_rgb_sliders_changed)
 
         self.r_val_label = create_label("0")
         self.g_val_label = create_label("0")
         self.b_val_label = create_label("0")
 
-        control_layout.addLayout(self.create_slider_row("Red:", self.r_slider, self.r_val_label))
-        control_layout.addLayout(self.create_slider_row("Green:", self.g_slider, self.g_val_label))
-        control_layout.addLayout(self.create_slider_row("Blue:", self.b_slider, self.b_val_label))
+        control_layout.addLayout(self.create_rgb_slider_row("Red:", self.r_slider, self.r_val_label))
+        control_layout.addLayout(self.create_rgb_slider_row("Green:", self.g_slider, self.g_val_label))
+        control_layout.addLayout(self.create_rgb_slider_row("Blue:", self.b_slider, self.b_val_label))
 
         # Separate individual color controls from batch editing
         create_separator(layout=control_layout)
@@ -368,30 +392,52 @@ class PaletteEditor(QtW.QWidget):
 
         return self.controls_scroll
 
-    def create_step_slider(self, callback):
-        return create_slider(
-            minimum=0,
-            maximum=7,
-            single_step=1,
-            page_step=1,
-            tick_position=QtW.QSlider.TickPosition.TicksBelow,
-            tick_interval=1,
-            on_pressed=self.history_push_state,
-            on_value_changed=callback,
-        )
+    def create_rgb_slider(self, callback):
+        """
+        Creates sliders for RGB component editing.
 
-    def create_slider_row(self, label_text, slider, val_label):
+        Returns:
+            QtW.QSlider
+        """
+        return create_slider(minimum=0, maximum=7,
+            single_step=1, page_step=1, tick_position=QtW.QSlider.TickPosition.TicksBelow,
+            tick_interval=1, on_pressed=self.history_push_state, on_value_changed=callback)
+
+    @staticmethod
+    def create_rgb_slider_row(label_text, slider, val_label):
+        """
+        RBG slider row constructor (Premade slider and labels)
+
+        Returns:
+            QtW.QHBoxLayout (Name label, slider, value label)
+        """
         layout = QtW.QHBoxLayout()
+
+        # Insert Color label (Red, Green, Blue)
         create_label(label_text, width=50, layout=layout)
+
+        # Insert RGB slider
         layout.addWidget(slider)
+
+        # Insert value label
         val_label.setFixedWidth(30)
         layout.addWidget(val_label)
+
         return layout
 
-    def create_form_row(self, label_text, widget):
+    @staticmethod
+    def create_form_row(label_text, widget):
+        """
+        Line edit form row constructor (Input field with a label above it).
+
+        Returns:
+            QtW.QVBoxLayout (Text label, Widget (Expected: LineEdit))
+        """
         layout = QtW.QVBoxLayout()
+
         create_label(label_text, layout=layout)
         layout.addWidget(widget)
+
         return layout
 
 
@@ -399,21 +445,21 @@ class PaletteEditor(QtW.QWidget):
     # File Operations
     # --------------------------------------------------
     def file_palette_new(self):
-        # To-Do: Clean up this flow. It should work as follows:
-        # Prepare the new palette.
-        # Write it and check success (it currently does this last, though this can fail).
-        # Register it in the project only after success (Doing this before save can cause a bug).
+        """
+        Creates and saves a new palette.
+        Registers it with the active project.
+        Activates it for use.
 
+        Returns:
+            True if creation succeeded, False otherwise.
+        """
         count, ok = QtW.QInputDialog.getInt(
             self, "New Palette", "Number of colors:", 16, 1, PALEDIT_MAXCOLORS, 1
         )
 
         # Exit if the user cancels
         if not ok:
-            return
-
-        # Init new palette as all black
-        new_pal = [QColor(0, 0, 0) for _i in range(count)]
+            return False
 
         # Get top-level window to access project file
         main_win = self.window()
@@ -422,44 +468,87 @@ class PaletteEditor(QtW.QWidget):
 
         # Save dialog for new palette file
         file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "Create Palette File", start_dir, "Genesis Palette (*.bin *.pal);;All Files (*)"
+            self, "Create Palette File", start_dir, "Palette Files (*.bin *.pal);;All Files (*)"
         )
+
+        # If no filepath, stop here
         if not file_path:
-            return
+            return False
 
         path = Path(file_path)
 
-        # Add palette file to project file
-        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+        # Init new palette as all black
+        new_pal = [QColor(0, 0, 0) for _i in range(count)]
+
+        # Write new palette to file, stop here if failed
+        if not self.file_pal_data_write(path, new_pal):
+            return False
+
+        # Get project data
+        project_data = getattr(main_win, "active_project_data", None)
+
+        # Add palette file to project file if we are working in a project
+        if project_data is not None:
             # Determine relative path string to write into JSON
             if project_dir and path.is_relative_to(project_dir):
                 relative_path = str(path.relative_to(project_dir))
             else:
                 relative_path = str(path)
 
-            palettes_list = main_win.active_project_data.setdefault("palettes", [])
-            if relative_path not in palettes_list:
-                palettes_list.append(relative_path)
+            # Get project's list of palettes
+            palette_paths = project_data.get("palettes", [])
 
-            # Persist project JSON changes back to disk
-            project_json_path = getattr(main_win, "active_project_json_path", None)
-            if project_json_path and Path(project_json_path).exists():
-                try:
-                    with open(project_json_path, "w", encoding="utf-8") as f:
-                        json.dump(main_win.active_project_data, f, indent=2)
-                except Exception as e:
+            if relative_path not in palette_paths:
+                # Prepare the update without changing live project data
+                updated_project_data = dict(project_data)
+                updated_project_data["palettes"] = [*palette_paths, relative_path]
+
+                project_json_path = getattr(main_win, "active_project_json_path", None)
+
+                if not project_json_path:
                     QtW.QMessageBox.warning(
-                        self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}"
+                        self, "Project Update Error",
+                        "The palette file was created, but the active project has no JSON save path."
                     )
+                    return False
 
-        # Add path to the editor's list and select it for editing
-        self.proj_register_palette(path)
+                try:
+                    # Update project file
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(updated_project_data, f, indent=2)
 
-        # Update palette grid and save the new file to disk
+                except (OSError, TypeError, ValueError) as e:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        f"The palette file was created, but it could not be added to the project:\n{e}"
+                    )
+                    return False
+
+                # Commit project updates
+                project_data["palettes"] = updated_project_data["palettes"]
+
+        """
+        The above block is skipped if the user is working without a project.
+        Without a project, the user can still create and work with the palette.
+        """
+
+        # Activate the created palette
         self.palette_set_colors(new_pal)
-        self.file_pal_data_write(path)
+        self.proj_register_palette(path)
+        self.unsaved_changes = False
+
+        # Successful creation
+        return True
 
     def file_palette_load(self):
+        """
+        Loads a palette file.
+        Registers it with the active project.
+        Activates it for use.
+
+        Returns:
+            True if creation succeeded, False otherwise.
+        """
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
@@ -469,178 +558,332 @@ class PaletteEditor(QtW.QWidget):
         file_path, _ = QtW.QFileDialog.getOpenFileName(
             self, "Load Palette", start_dir, "Palette Files (*.bin *.pal);;All Files (*)"
         )
+
+        # If no filepath, stop here
         if not file_path:
-            return
+            return False
 
         path = Path(file_path)
 
-        # Add palette file to project file, if it isn't already present
-        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+        # Validate palette file and load data into a buffer
+        loaded_colors = self.file_pal_data_read(path)
+
+        # If load failed, stop here
+        if loaded_colors is None:
+            return False
+
+        # Get project data
+        project_data = getattr(main_win, "active_project_data", None)
+
+        # Add palette file to project file if we are working in a project
+        if project_data is not None:
             # Determine relative path string to write into JSON
             if project_dir and path.is_relative_to(project_dir):
                 relative_path = str(path.relative_to(project_dir))
             else:
                 relative_path = str(path)
 
-            palettes_list = main_win.active_project_data.setdefault("palettes", [])
-            if relative_path not in palettes_list:
-                palettes_list.append(relative_path)
+            # Get project's list of palettes
+            palette_paths = project_data.get("palettes", [])
 
-            # Persist project JSON changes back to disk
-            project_json_path = getattr(main_win, "active_project_json_path", None)
-            if project_json_path and Path(project_json_path).exists():
+            if relative_path not in palette_paths:
+                # Prepare the update without changing live project data
+                updated_project_data = dict(project_data)
+                updated_project_data["palettes"] = [*palette_paths, relative_path]
+
+                project_json_path = getattr(main_win, "active_project_json_path", None)
+
+                if not project_json_path:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        "The active project has no JSON save path."
+                    )
+                    return False
+
                 try:
+                    # Update project file
                     with open(project_json_path, "w", encoding="utf-8") as f:
-                        json.dump(main_win.active_project_data, f, indent=2)
-                except Exception as e:
-                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+                        json.dump(updated_project_data, f, indent=2)
 
-        # Add path to the editor's list and select it for editing
+                except (OSError, TypeError, ValueError) as e:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        f"Could not add the palette to the project:\n{e}"
+                    )
+                    return False
+
+                # Commit project updates
+                project_data["palettes"] = updated_project_data["palettes"]
+
+        """
+        The above block is skipped if the user is working without a project.
+        Without a project, the user can still work with the loaded palette.
+        """
+
+        # Activate the loaded palette
+        self.palette_set_colors(loaded_colors)
         self.proj_register_palette(path)
+        self.unsaved_changes = False
 
-        # Update palette grid with loaded palette
-        self.file_pal_data_read(path)
+        # Successful load
+        return True
 
     def file_palette_save(self):
-        if self.active_palette_path and self.active_palette_path.parent.exists():
-            self.file_pal_data_write(self.active_palette_path)
-        else:
+        """
+        Saves the active palette data to file.
+        If no active path, Save As is called instead.
+
+        Returns:
+            True if save was successful, False otherwise.
+        """
+        if not (self.active_palette_path and self.active_palette_path.parent.exists()):
             return self.file_palette_save_as()
 
+        if not self.file_pal_data_write(self.active_palette_path, self.palette_colors):
+            return False
+
+        self.unsaved_changes = False
+        return True
+
     def file_palette_save_as(self):
+        """
+        Writes current palette data to a chosen path.
+        Registers it with the active project under the new path.
+        Activates it for use.
+
+        Returns:
+            True if save was successful, False otherwise.
+        """
         # Get top-level window to access project file
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
         start_dir = str(project_dir) if project_dir else ""
 
+        # Save dialog for new palette file
         file_path, _ = QtW.QFileDialog.getSaveFileName(
-            self, "Save Palette As", start_dir, "Genesis Palette (*.bin *.pal);;All Files (*)"
+            self, "Save Palette As", start_dir,"Palette Files (*.bin *.pal);;All Files (*)"
         )
 
-        # Failed Save
+        # If no filepath, stop here
         if not file_path:
             return False
 
         path = Path(file_path)
 
-        # Add palette file to project file, if its name isn't already present
-        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
+        # Attempt to write palette to file first
+        if not self.file_pal_data_write(path, self.palette_colors):
+            return False
+
+        # Get project data
+        project_data = getattr(main_win, "active_project_data", None)
+
+        # Add palette file to project file if we are working in a project
+        if project_data is not None:
             # Determine relative path string to write into JSON
             if project_dir and path.is_relative_to(project_dir):
                 relative_path = str(path.relative_to(project_dir))
             else:
                 relative_path = str(path)
 
-            palettes_list = main_win.active_project_data.setdefault("palettes", [])
-            if relative_path not in palettes_list:
-                palettes_list.append(relative_path)
+            # Get project's list of palettes
+            palette_paths = project_data.get("palettes", [])
 
-            # Persist project JSON changes back to disk
-            project_json_path = getattr(main_win, "active_project_json_path", None)
-            if project_json_path and Path(project_json_path).exists():
+            if relative_path not in palette_paths:
+                # Prepare the update without changing live project data
+                updated_project_data = dict(project_data)
+                updated_project_data["palettes"] = [*palette_paths, relative_path]
+
+                project_json_path = getattr(main_win, "active_project_json_path", None)
+
+                if not project_json_path:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        "The palette file was saved, but the active project has no JSON save path."
+                    )
+                    return False
+
                 try:
+                    # Update project file
                     with open(project_json_path, "w", encoding="utf-8") as f:
-                        json.dump(main_win.active_project_data, f, indent=2)
-                except Exception as e:
-                    QtW.QMessageBox.warning(self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}")
+                        json.dump(updated_project_data, f, indent=2)
 
-        # Save new palette copy to disk
-        if not self.file_pal_data_write(path):
-            return False
+                except (OSError, TypeError, ValueError) as e:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        f"The palette file was saved, but it could not be added to the project:\n{e}"
+                    )
+                    return False
 
-        # Add path to the editor's list and select it for editing
+                # Commit project updates
+                project_data["palettes"] = updated_project_data["palettes"]
+
+        """
+        The above block is skipped if the user is working without a project.
+        Without a project, the user can still work with the newly saved palette.
+        """
+
+        # Activate the newly saved palette
         self.proj_register_palette(path)
+        self.unsaved_changes = False
 
-        # Successful Save
+        # Successful save
         return True
 
     def file_palette_remove(self):
-        if not self.active_palette_path:
-            return
+        """
+        Removes the active palette from the project, discarding pending edits.
+        Does not delete the actual file from disk.
 
+        Returns:
+            True if removal was successful, False otherwise.
+        """
+        path = self.active_palette_path
+
+        # If no filepath, stop here
+        if path is None:
+            return False
+
+        message = f"Are you sure you want to remove '{path.name}' from the project?"
+
+        if self.unsaved_changes:
+            message += "\n\nUnsaved changes will be discarded."
+
+        message += "\n\nThe palette file on disk will remain unchanged."
+
+        # Confirm removal
         reply = QtW.QMessageBox.question(
             self,
-            "Remove Palette",
-            f"Are you sure you want to remove '{self.active_palette_path.name}' from the project?\n\n"
-            "Note: The actual file will NOT be deleted from your directory.",
+            "Remove Palette", message,
             QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
             QtW.QMessageBox.StandardButton.No
         )
 
-        # Exit if confirmation fails
+        # If confirmation fails, stop here
         if reply != QtW.QMessageBox.StandardButton.Yes:
-            return
+            return False
 
+        # Get project data
         main_win = self.window()
         project_dir = getattr(main_win, "project_root_dir", None)
+        project_data = getattr(main_win, "active_project_data", None)
 
         # Remove the palette from the JSON project file
-        if hasattr(main_win, "active_project_data") and main_win.active_project_data is not None:
-            # Determine the exact relative path string in the file
-            if project_dir and self.active_palette_path.is_relative_to(project_dir):
-                relative_path = str(self.active_palette_path.relative_to(project_dir))
+        if project_data is not None:
+            # Determine relative path string to write into JSON
+            if project_dir and path.is_relative_to(project_dir):
+                relative_path = str(path.relative_to(project_dir))
             else:
-                relative_path = str(self.active_palette_path)
+                relative_path = str(path)
 
-            palettes_list = main_win.active_project_data.get("palettes", [])
-            if relative_path in palettes_list:
-                palettes_list.remove(relative_path)
+            # Get project's list of palettes
+            palette_paths = project_data.get("palettes", [])
 
-            # Persist project JSON changes back to disk
-            project_json_path = getattr(main_win, "active_project_json_path", None)
-            if project_json_path and Path(project_json_path).exists():
-                try:
-                    with open(project_json_path, "w", encoding="utf-8") as f:
-                        json.dump(main_win.active_project_data, f, indent=2)
-                except Exception as e:
+            # Find path of the palette we are removing
+            if relative_path in palette_paths:
+                # Prepare the removal without changing live project data
+                updated_project_data = dict(project_data)
+                updated_project_data["palettes"] = [p for p in palette_paths if p != relative_path]
+
+                project_json_path = getattr(main_win, "active_project_json_path", None)
+
+                if not project_json_path:
                     QtW.QMessageBox.warning(
-                        self, "Project Update Warning", f"Could not save project JSON:\n{str(e)}"
+                        self, "Project Update Error", "This project has no JSON save path."
                     )
+                    return False
 
-        # Remove entry and refresh dropdown
-        if self.active_palette_path in self.project_palette_paths:
-            self.project_palette_paths.remove(self.active_palette_path)
+                try:
+                    # Update project file
+                    with open(project_json_path, "w", encoding="utf-8") as f:
+                        json.dump(updated_project_data, f, indent=2)
 
+                except (OSError, TypeError, ValueError) as e:
+                    QtW.QMessageBox.warning(
+                        self, "Project Update Error",
+                        f"Couldn't remove the palette from the project:\n{str(e)}"
+                    )
+                    return False
+
+                # Commit project updates
+                project_data["palettes"] = updated_project_data["palettes"]
+
+        """
+        The above block is skipped if the user is working without a project.
+        Without a project, the user can still work with the newly saved palette.
+        """
+
+        # Remove path from the list of palettes
+        remaining_paths = [p for p in self.project_palette_paths if p != path]
+
+        # Discard the removed palette
         self.active_palette_path = None
-        self.proj_populate_pal_list(self.project_palette_paths)
+        self.current_dropdown_index = -1
+        self.palette_set_colors([QColor(0, 0, 0) for _ in range(64)])
+        self.unsaved_changes = False
 
-    def file_pal_data_read(self, path):
-        self.active_palette_path = path
-        if not path.exists():
-            return
+        # Refresh the dropdown and load the first remaining palette, if any
+        self.proj_populate_pal_list(remaining_paths)
 
-        loaded_colors = []
+        return True
 
-        # Raw Binary Palette file (2-byte word per color: 0000 BBB0 GGG0 RRR0)
+    @staticmethod
+    def file_pal_data_read(path):
+        """
+        Validate and read palette file.
+
+        Returns:
+            loaded_colors (list) if read was successful.
+            None if read failed.
+        """
         try:
+            # Read up to 256 colors (512 bytes)
             with open(path, "rb") as f:
-                data = f.read(512)  # Read up to 256 colors (512 bytes)
-                for _i in range(0, len(data), 2):
-                    if _i + 1 < len(data):
-                        val = (data[_i] << 8) | data[_i + 1]
+                data = f.read(512)
 
-                        # Extract 3-bit values (0-7)
-                        r_step = (val >> 1) & 0x07
-                        g_step = (val >> 5) & 0x07
-                        b_step = (val >> 9) & 0x07
+            if not data:
+                raise ValueError("The palette file is empty.")
 
-                        # Map them directly to color values
-                        _r = MDCOLOR_VALUES[r_step]
-                        _g = MDCOLOR_VALUES[g_step]
-                        _b = MDCOLOR_VALUES[b_step]
+            if len(data) % 2:
+                raise ValueError("Palette data must contain complete 2-byte colors.")
 
-                        loaded_colors.append(QColor(_r, _g, _b))
+            # If file is validated, begin loading colors
+            loaded_colors = []
 
-        except Exception as e:
+            # Each color is a big-endian word: 0000 BBB0 GGG0 RRR0
+            for _i in range(0, len(data), 2):
+                val = (data[_i] << 8) | data[_i + 1]
+
+                # Extract 3-bit values (0-7)
+                r_step = (val >> 1) & 0x07
+                g_step = (val >> 5) & 0x07
+                b_step = (val >> 9) & 0x07
+
+                # Build color values and load them to the array
+                loaded_colors.append(QColor(
+                    MDCOLOR_VALUES[r_step],
+                    MDCOLOR_VALUES[g_step],
+                    MDCOLOR_VALUES[b_step],
+                ))
+
+            # Successful read
+            return loaded_colors
+
+        # Failed read
+        except (OSError, ValueError) as e:
             print(f"Error loading palette {path.name}: {e}")
+            return None
 
-        if loaded_colors:
-            self.palette_set_colors(loaded_colors)
-            self.unsaved_changes = False  # clear flag on load
+    @staticmethod
+    def file_pal_data_write(path, colors):
+        """
+        Write palette color data to file.
 
-    def file_pal_data_write(self, path):
+        Returns:
+            True if writing succeeded.
+            False if writing failed.
+        """
         binary_data = bytearray()
-        for color in self.palette_colors:
+        for color in colors:
             _r = snap_to_md_colors(color.red())
             _g = snap_to_md_colors(color.green())
             _b = snap_to_md_colors(color.blue())
@@ -655,12 +898,11 @@ class PaletteEditor(QtW.QWidget):
                 f.write(binary_data)
 
             # Successful Save
-            self.unsaved_changes = False
             return True
 
-        # Failed Save
-        except Exception as e:
-            QtW.QMessageBox.critical(self, "Save Error", f"Failed to save palette:\n{str(e)}")
+        # Failed write
+        except OSError as e:
+            print(f"Error saving palette {path.name}: {e}")
             return False
 
 
@@ -668,7 +910,9 @@ class PaletteEditor(QtW.QWidget):
     # Project File Selection
     # --------------------------------------------------
     def proj_register_palette(self, path):
-        """Register new palette to the project"""
+        """
+        Register new palette to the project.
+        """
         # Update the current palette file reference
         self.active_palette_path = path
 
@@ -689,7 +933,13 @@ class PaletteEditor(QtW.QWidget):
 
         # Set selection to the new palette
         if target_index >= 0:
-            self.pal_dropdown.setCurrentIndex(target_index)
+            was_blocked = self.pal_dropdown.blockSignals(True)
+
+            try:
+                self.pal_dropdown.setCurrentIndex(target_index)
+                self.current_dropdown_index = target_index
+            finally:
+                self.pal_dropdown.blockSignals(was_blocked)
 
     def proj_populate_pal_list(self, palette_paths):
         self.project_palette_paths = list(palette_paths)
@@ -719,21 +969,51 @@ class PaletteEditor(QtW.QWidget):
     # File Toolbar Dropdown function
     def on_pal_dropdown_changed(self, index):
         # Ignore if only reverting/resetting UI
-        if index == self.current_dropdown_index or index == -1:
+        if index < 0:
             return
 
-        def load_new_selection():
-            # Load selected palette
+        # Capture the requested palette before any save prompt
+        path = self.pal_dropdown.itemData(index)
+
+        if not isinstance(path, Path):
+            return
+
+        # No switch is needed if this palette is already active
+        if path == self.active_palette_path:
             self.current_dropdown_index = index
-            path = self.pal_dropdown.itemData(index)
-            if path and isinstance(path, Path):
-                self.file_pal_data_read(path)
+            return
 
         def revert_selection():
+            # Find the currently active palette. Save As may have
+            # changed its path and dropdown position during the prompt.
+            restore_index = -1
+
+            for i in range(self.pal_dropdown.count()):
+                if self.pal_dropdown.itemData(i) == self.active_palette_path:
+                    restore_index = i
+                    break
+
             # Silently revert dropdown, don't replace palette
-            self.pal_dropdown.blockSignals(True)
-            self.pal_dropdown.setCurrentIndex(self.current_dropdown_index)
-            self.pal_dropdown.blockSignals(False)
+            was_blocked = self.pal_dropdown.blockSignals(True)
+
+            try:
+                self.pal_dropdown.setCurrentIndex(restore_index)
+                self.current_dropdown_index = restore_index
+            finally:
+                self.pal_dropdown.blockSignals(was_blocked)
+
+        def load_new_selection():
+            # Read without replacing the current palette
+            loaded_colors = self.file_pal_data_read(path)
+
+            if loaded_colors is None:
+                revert_selection()
+                return
+
+            # Activate only after reading succeeds
+            self.palette_set_colors(loaded_colors)
+            self.proj_register_palette(path)
+            self.unsaved_changes = False
 
         self.check_unsaved_changes(load_new_selection, revert_selection)
 
@@ -760,12 +1040,12 @@ class PaletteEditor(QtW.QWidget):
         if user_choice == "Save":
             if self.file_palette_save():
                 pending_action_callback()
-            else:
+            elif cancel_callback is not None:
                 cancel_callback()
         elif user_choice == "Save As":
             if self.file_palette_save_as():
                 pending_action_callback()
-            else:
+            elif cancel_callback is not None:
                 cancel_callback()
         elif user_choice == "Don't Save":
             pending_action_callback()
